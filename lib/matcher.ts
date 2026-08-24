@@ -1,9 +1,13 @@
-import { BankTransaction } from '@/types/conciliacion';
-import { SiigoTransaction, ConciliationItem, ConciliationSummary } from '@/types/conciliacion';
+import { 
+  BankTransaction, 
+  SiigoTransaction, 
+  ConciliationItem, 
+  ConciliationSummary 
+} from '../types/conciliacion';
 
 interface MatcherOptions {
-  diasTolerancia?: number; // Tolerancia en días para movimientos bancarios tardíos
-  toleranciaMonto?: number; // Diferencia máxima permitida en monto (ej: centavos)
+  diasTolerancia?: number;
+  toleranciaMonto?: number;
 }
 
 export const conciliarMovimientos = (
@@ -12,14 +16,11 @@ export const conciliarMovimientos = (
   options: MatcherOptions = { diasTolerancia: 3, toleranciaMonto: 0 }
 ): { items: ConciliationItem[]; summary: ConciliationSummary } => {
   const items: ConciliationItem[] = [];
-  
-  // Sets para rastrear elementos ya emparejados y evitar duplicación
   const matchedBankIds = new Set<string>();
   const matchedSiigoIds = new Set<string>();
 
   const { diasTolerancia = 3, toleranciaMonto = 0 } = options;
 
-  // Helper para calcular diferencia de días entre dos fechas (YYYY-MM-DD)
   const getDaysDifference = (dateStr1: string, dateStr2: string): number => {
     const d1 = new Date(dateStr1).getTime();
     const d2 = new Date(dateStr2).getTime();
@@ -27,9 +28,6 @@ export const conciliarMovimientos = (
     return Math.abs(Math.round((d1 - d2) / (1000 * 3600 * 24)));
   };
 
-  // ------------------------------------------------------------------
-  // PASO 1: Coincidencia Exacta (Fecha + Monto + Tipo + Referencia)
-  // ------------------------------------------------------------------
   for (const bankTx of bankTransactions) {
     const exactMatch = siigoTransactions.find((sTx) => {
       if (matchedSiigoIds.has(sTx.id)) return false;
@@ -56,9 +54,6 @@ export const conciliarMovimientos = (
     }
   }
 
-  // ------------------------------------------------------------------
-  // PASO 2: Coincidencia Parcial / Difusa (Monto Exacto + Rango de Fechas)
-  // ------------------------------------------------------------------
   for (const bankTx of bankTransactions) {
     if (matchedBankIds.has(bankTx.id)) continue;
 
@@ -87,11 +82,6 @@ export const conciliarMovimientos = (
     }
   }
 
-  // ------------------------------------------------------------------
-  // PASO 3: Registro de Discrepancias (Movimientos No Emparejados)
-  // ------------------------------------------------------------------
-
-  // Transacciones que están en el Extracto Bancario pero NO en Siigo
   for (const bankTx of bankTransactions) {
     if (!matchedBankIds.has(bankTx.id)) {
       items.push({
@@ -103,7 +93,6 @@ export const conciliarMovimientos = (
     }
   }
 
-  // Transacciones que están en Siigo pero NO en el Extracto Bancario
   for (const sTx of siigoTransactions) {
     if (!matchedSiigoIds.has(sTx.id)) {
       items.push({
@@ -115,9 +104,6 @@ export const conciliarMovimientos = (
     }
   }
 
-  // ------------------------------------------------------------------
-  // PASO 4: Cálculo de Métricas Generales
-  // ------------------------------------------------------------------
   const summary: ConciliationSummary = {
     totalBank: bankTransactions.length,
     totalSiigo: siigoTransactions.length,

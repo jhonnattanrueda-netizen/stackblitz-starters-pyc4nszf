@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { BankTransaction } from '@/types/conciliacion';
+import { BankTransaction } from '../types/conciliacion';
 
 export const parseBankExcel = (file: File): Promise<BankTransaction[]> => {
   return new Promise((resolve, reject) => {
@@ -10,14 +10,11 @@ export const parseBankExcel = (file: File): Promise<BankTransaction[]> => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         
-        // Tomamos la primera hoja del libro
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Convertimos la hoja a JSON
         const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet);
 
-        // Mapeo y normalización de las columnas del Excel
         const transactions: BankTransaction[] = rawRows.map((row, index) => {
           const montoRaw = Number(row['Monto'] || row['Valor'] || row['Importe'] || 0);
           
