@@ -1,27 +1,37 @@
-// Transacción proveniente de Siigo API
+// Registros del extracto bancario en Excel
+export interface BankTransaction {
+  id: string;
+  fecha: string;
+  referencia: string;
+  descripcion: string;
+  monto: number;
+  tipo: 'DEBITO' | 'CREDITO';
+}
+
+// Registros contables traídos de Siigo
 export interface SiigoTransaction {
   id: string;
-  fecha: string; // Formato YYYY-MM-DD
-  comprobante: string; // Ej: "RC-1-205"
-  tercero: string; // Nombre o NIT del cliente/proveedor
+  fecha: string;
+  comprobante: string;
+  tercero: string;
   observaciones: string;
   monto: number;
   tipo: 'DEBITO' | 'CREDITO';
 }
 
-// Estados posibles de la conciliación
+// Estado posible tras el motor de cruce
 export type MatchStatus = 'EXACT_MATCH' | 'PARTIAL_MATCH' | 'UNMATCHED';
 
-// Resultado individual de la comparación
+// Item individual resultante del cruce
 export interface ConciliationItem {
   bankTx?: BankTransaction;
   siigoTx?: SiigoTransaction;
   status: MatchStatus;
-  confidenceScore: number; // 0 - 100%
+  confidenceScore: number;
   motivo?: string;
 }
 
-// Resumen macro del proceso
+// Totales e indicadores para los KPIs
 export interface ConciliationSummary {
   totalBank: number;
   totalSiigo: number;

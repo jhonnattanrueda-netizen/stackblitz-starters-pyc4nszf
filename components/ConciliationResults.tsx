@@ -11,7 +11,7 @@ import {
   FileSpreadsheet,
   Building2
 } from 'lucide-react';
-import { ConciliationItem, ConciliationSummary, MatchStatus } from '@/types/conciliacion';
+import { ConciliationItem, ConciliationSummary, MatchStatus } from '../types/conciliacion';
 
 interface Props {
   results: ConciliationItem[];
@@ -21,7 +21,6 @@ interface Props {
 export default function ConciliationResults({ results, summary }: Props) {
   const [activeTab, setActiveTab] = useState<MatchStatus | 'ALL'>('ALL');
 
-  // Filtrado de items según la pestaña activa
   const filteredItems = results.filter((item) => {
     if (activeTab === 'ALL') return true;
     return item.status === activeTab;
@@ -55,9 +54,6 @@ export default function ConciliationResults({ results, summary }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* ------------------------------------------------------------------ */}
-      {/* TARJETAS DE MÉTRICAS / KPIS                                         */}
-      {/* ------------------------------------------------------------------ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">
@@ -102,9 +98,6 @@ export default function ConciliationResults({ results, summary }: Props) {
         </div>
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* BARRA DE NAVEGACIÓN POR PESTAÑAS                                    */}
-      {/* ------------------------------------------------------------------ */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="border-b border-slate-200 bg-slate-50/50 px-6 pt-4 flex gap-2 overflow-x-auto">
           <button
@@ -164,9 +157,6 @@ export default function ConciliationResults({ results, summary }: Props) {
           </button>
         </div>
 
-        {/* ------------------------------------------------------------------ */}
-        {/* TABLA COMPARATIVA (SIDE-BY-SIDE)                                   */}
-        {/* ------------------------------------------------------------------ */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-slate-600">
             <thead className="bg-slate-100/70 text-slate-500 uppercase text-xs font-semibold border-b border-slate-200">
@@ -194,7 +184,6 @@ export default function ConciliationResults({ results, summary }: Props) {
 
                 return (
                   <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                    {/* Columna Estado */}
                     <td className="px-4 py-4 text-center space-y-1 align-top">
                       <div>{getStatusBadge(item.status)}</div>
                       {item.confidenceScore > 0 && (
@@ -204,7 +193,6 @@ export default function ConciliationResults({ results, summary }: Props) {
                       )}
                     </td>
 
-                    {/* Columna Movimiento Banco */}
                     <td className="px-6 py-4 bg-blue-50/10 border-r border-slate-100 align-top">
                       {bank ? (
                         <div className="space-y-1">
@@ -223,7 +211,6 @@ export default function ConciliationResults({ results, summary }: Props) {
                       )}
                     </td>
 
-                    {/* Columna Registro Siigo */}
                     <td className="px-6 py-4 bg-indigo-50/10 align-top">
                       {siigo ? (
                         <div className="space-y-1">
@@ -243,7 +230,6 @@ export default function ConciliationResults({ results, summary }: Props) {
                       )}
                     </td>
 
-                    {/* Columna Monto */}
                     <td className="px-4 py-4 text-right align-top font-semibold">
                       <div className="flex items-center justify-end gap-1">
                         {tipo === 'CREDITO' ? (

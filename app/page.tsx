@@ -2,10 +2,15 @@
 
 import { useState, ChangeEvent, DragEvent } from 'react';
 import { Upload, FileSpreadsheet, AlertCircle, RefreshCw, Layers } from 'lucide-react';
-import { parseBankExcel } from '@/lib/excel';
-import { conciliarMovimientos } from '@/lib/matcher';
-import { BankTransaction, SiigoTransaction, ConciliationItem, ConciliationSummary } from '@/types/conciliacion';
-import ConciliationResults from '@/components/ConciliationResults';
+import { parseBankExcel } from '../lib/excel';
+import { conciliarMovimientos } from '../lib/matcher';
+import { 
+  BankTransaction, 
+  SiigoTransaction, 
+  ConciliationItem, 
+  ConciliationSummary 
+} from '../types/conciliacion';
+import ConciliationResults from '../components/ConciliationResults';
 
 // Transacciones mock de Siigo para pruebas de desarrollo
 const MOCK_SIIGO_TRANSACTIONS: SiigoTransaction[] = [
