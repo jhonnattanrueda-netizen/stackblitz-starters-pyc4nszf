@@ -32,21 +32,41 @@ export async function GET(request: Request) {
 
     const token = authData.access_token;
 
-    // 2. Traer un lote más amplio de comprobantes contables sin restringir por fecha de creación
-    const entriesRes = await fetch(
-      `${baseUrl}/v1/journals?page_size=250`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Partner-Id': 'PortalConciliacion',
-        },
-        cache: 'no-store',
-      }
-    );
+    // 2. Traer TODAS las páginas de comprobantes de Siigo (Paginación automática)
+    let allResults: any[] = [];
+    let currentPage = 1;
+    let totalPages = 1;
 
-    const entriesData = await entriesRes.json();
-    return NextResponse.json(entriesData);
+    do {
+      const entriesRes = await fetch(
+        `${baseUrl}/v1/journals?page=${currentPage}&page_size=100`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Partner-Id': 'PortalConciliacion',
+          },
+          cache: 'no-store',
+        }
+      );
+
+      if (!entriesRes.ok) break;
+
+      const entriesData = await entriesRes.json();
+      const pageResults = entriesData.results || [];
+      allResults = [...allResults, ...pageResults];
+
+      // Determinar total de páginas de la respuesta
+      const totalResults = entriesData.pagination?.total_results || allResults.length;
+      totalPages = Math.ceil(totalResults / 100);
+
+      currentPage++;
+    } while (currentPage <= totalPages && currentPage <= 10); // Límite de seguridad de 10 páginas (1000 registros)
+
+    return NextResponse.json({
+      pagination: { total_results: allResults.length },
+      results: allResults,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: 'Excepción de servidor', mensaje: error?.message || String(error) },
