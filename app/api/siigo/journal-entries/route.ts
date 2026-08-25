@@ -1,24 +1,18 @@
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const fechaInicio = searchParams.get('created_start') || '2026-01-01';
-  const fechaFin = searchParams.get('created_end') || '2026-12-31';
-
   const username = process.env.SIIGO_USERNAME;
   const accessKey = process.env.SIIGO_ACCESS_KEY;
   const baseUrl = process.env.SIIGO_API_URL || 'https://api.siigo.com';
 
-  // Si no existen variables en Vercel, la API responderá con un error claro
   if (!username || !accessKey) {
     return NextResponse.json(
-      { error: 'Credenciales de Siigo no configuradas en el entorno (Vercel).' },
-      { status: 500 }
+      { error: 'Credenciales de Siigo no configuradas en Vercel (SIIGO_USERNAME / SIIGO_ACCESS_KEY).' },
+      { status: 401 }
     );
   }
 
   try {
-    // 1. Obtener Token de autenticación de Siigo API
     const authRes = await fetch(`${baseUrl}/v1/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -26,19 +20,19 @@ export async function GET(request: Request) {
       cache: 'no-store',
     });
 
+    const authData = await authRes.json();
+
     if (!authRes.ok) {
       return NextResponse.json(
-        { error: 'Falló la autenticación con las credenciales de Siigo.' },
+        { error: 'Rechazado por Siigo Auth', detalle: authData },
         { status: authRes.status }
       );
     }
 
-    const authData = await authRes.json();
     const token = authData.access_token;
 
-    // 2. Traer Comprobantes de Siigo
     const entriesRes = await fetch(
-      `${baseUrl}/v1/journal-entries?created_start=${fechaInicio}&created_end=${fechaFin}&page_size=100`,
+      `${baseUrl}/v1/journal-entries?created_start=2026-01-01&created_end=2026-12-31&page_size=100`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -49,18 +43,11 @@ export async function GET(request: Request) {
       }
     );
 
-    if (!entriesRes.ok) {
-      return NextResponse.json(
-        { error: 'No se pudieron consultar los comprobantes contables en Siigo.' },
-        { status: entriesRes.status }
-      );
-    }
-
     const entriesData = await entriesRes.json();
     return NextResponse.json(entriesData);
-  } catch (error) {
+  } catch (error: any) {
     return NextResponse.json(
-      { error: 'Error de conexión interno con los servidores de Siigo.' },
+      { error: 'Excepción de servidor', mensaje: error?.message || String(error) },
       { status: 500 }
     );
   }
