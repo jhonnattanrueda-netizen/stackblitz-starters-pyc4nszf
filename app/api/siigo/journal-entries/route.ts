@@ -32,14 +32,14 @@ export async function GET(request: Request) {
 
     const token = authData.access_token;
 
-    // 2. Traer TODAS las páginas de comprobantes de Siigo (Paginación automática)
+    // 2. Traer la totalidad de registros abarcando todo el año 2026 directamente por fecha de documento
     let allResults: any[] = [];
     let currentPage = 1;
     let totalPages = 1;
 
     do {
       const entriesRes = await fetch(
-        `${baseUrl}/v1/journals?page=${currentPage}&page_size=100`,
+        `${baseUrl}/v1/journals?date_start=2026-01-01&date_end=2026-12-31&page=${currentPage}&page_size=100`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -56,12 +56,11 @@ export async function GET(request: Request) {
       const pageResults = entriesData.results || [];
       allResults = [...allResults, ...pageResults];
 
-      // Determinar total de páginas de la respuesta
       const totalResults = entriesData.pagination?.total_results || allResults.length;
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 10); // Límite de seguridad de 10 páginas (1000 registros)
+    } while (currentPage <= totalPages && currentPage <= 20); // Extendido a 20 páginas (hasta 2000 comprobantes)
 
     return NextResponse.json({
       pagination: { total_results: allResults.length },
