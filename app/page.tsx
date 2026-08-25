@@ -12,15 +12,6 @@ import {
 } from '../types/conciliacion';
 import ConciliationResults from '../components/ConciliationResults';
 
-// Registros de respaldo en caso de no tener llaves API configuradas en Vercel
-const FALLBACK_SIIGO: SiigoTransaction[] = [
-  { id: 'siigo-1', fecha: '2026-08-01', comprobante: 'RC-1-1024', tercero: 'Comercializadora Alfa S.A.S.', observaciones: 'Pago factura N-5402', monto: 1500000, tipo: 'CREDITO' },
-  { id: 'siigo-2', fecha: '2026-08-03', comprobante: 'CC-1-809', tercero: 'Empresas Públicas de Santander', observaciones: 'Pago energía', monto: 450000, tipo: 'DEBITO' },
-  { id: 'siigo-3', fecha: '2026-08-05', comprobante: 'RC-1-1025', tercero: 'Inversiones Globales Ltda.', observaciones: 'Abono cartera', monto: 3200000, tipo: 'CREDITO' },
-  { id: 'siigo-4', fecha: '2026-08-10', comprobante: 'CC-1-810', tercero: 'Distribuidora del Oriente', observaciones: 'Compra suministros', monto: 180000, tipo: 'DEBITO' },
-  { id: 'siigo-5', fecha: '2026-08-12', comprobante: 'RC-1-1028', tercero: 'Servicios Integrales de Colombia', observaciones: 'Honorarios agosto', monto: 890000, tipo: 'CREDITO' },
-];
-
 export default function Home() {
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -28,7 +19,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
-  // Estados de conciliación
+  // Estados para renderizar la conciliación
   const [conciliationResults, setConciliationResults] = useState<ConciliationItem[] | null>(null);
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
 
@@ -44,44 +35,43 @@ export default function Home() {
     setConciliationResults(null);
 
     try {
+      // 1. Lectura del archivo Excel bancario
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
       let siigoTransactions: SiigoTransaction[] = [];
 
-      // Consulta a la API Route de Siigo
-      try {
-        const res = await fetch('/api/siigo/journal-entries');
-        if (res.ok) {
-          const data = await res.json();
-          const results = data.results || [];
-
-          if (results.length > 0) {
-            siigoTransactions = results.map((entry: any, index: number) => ({
-              id: entry.id || `siigo-${index}`,
-              fecha: entry.date || '',
-              comprobante: `${entry.name || 'RC'}-${entry.number || index}`,
-              tercero: entry.customer?.name?.[0] || 'Tercero No Especificado',
-              observaciones: entry.observations || 'Sin detalle',
-              monto: Math.abs(Number(entry.items?.[0]?.value || 0)),
-              tipo: entry.items?.[0]?.type === 'Credit' ? 'CREDITO' : 'DEBITO',
-            }));
-          } else {
-            siigoTransactions = FALLBACK_SIIGO;
-          }
-        } else {
-          siigoTransactions = FALLBACK_SIIGO;
-        }
-      } catch (apiErr) {
-        siigoTransactions = FALLBACK_SIIGO;
+      // 2. Consulta en vivo a la API Route de Siigo
+      const res = await fetch('/api/siigo/journal-entries');
+      
+      if (!res.ok) {
+        throw new Error('No se pudo establecer la conexión con Siigo API');
       }
 
-      // Procesar cruce de datos
+      const data = await res.json();
+      const results = data.results || [];
+
+      // 3. Mapeo del JSON oficial de Siigo Nube a nuestro tipo interno
+      siigoTransactions = results.map((entry: any, index: number) => {
+        const firstItem = entry.items?.[0] || {};
+        
+        return {
+          id: entry.id || `siigo-${index}`,
+          fecha: entry.date || '',
+          comprobante: entry.name || entry.document?.name || `CC-${entry.number || index}`,
+          tercero: firstItem.customer?.identification || firstItem.customer?.id || 'Tercero No Registrado',
+          observaciones: entry.observations || firstItem.description || 'Sin detalle',
+          monto: Math.abs(Number(firstItem.value || 0)),
+          tipo: firstItem.movement === 'Credit' ? 'CREDITO' : 'DEBITO',
+        };
+      });
+
+      // 4. Motor de coincidencia matemática e histórica
       const { items, summary } = conciliarMovimientos(parsedBankData, siigoTransactions);
       setConciliationResults(items);
       setConciliationSummary(summary);
-    } catch (err) {
-      setError('Error al procesar el archivo Excel. Verifica el formato del documento.');
+    } catch (err: any) {
+      setError(err?.message || 'Error al procesar el archivo Excel o la información de Siigo.');
     } finally {
       setLoading(false);
     }
@@ -132,7 +122,7 @@ export default function Home() {
       </header>
 
       <main className="max-w-7xl mx-auto space-y-8">
-        {/* Dropzone para archivos Excel */}
+        {/* Dropzone para subir archivos */}
         {transactions.length === 0 && (
           <div
             onDrop={handleDrop}
@@ -171,15 +161,15 @@ export default function Home() {
           </div>
         )}
 
-        {/* Notificación de procesando */}
+        {/* Indicador de carga */}
         {loading && (
           <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
             <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-            <span className="font-semibold text-sm">Consultando información y realizando cruce de saldos...</span>
+            <span className="font-semibold text-sm">Consultando los 454 registros contables de Siigo y cruzando movimientos...</span>
           </div>
         )}
 
-        {/* Notificación de Error */}
+        {/* Banner de error */}
         {error && (
           <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-3">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -187,7 +177,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Componente de Resultados */}
+        {/* Dashboard de Resultados */}
         {conciliationResults && conciliationSummary && (
           <ConciliationResults results={conciliationResults} summary={conciliationSummary} />
         )}
