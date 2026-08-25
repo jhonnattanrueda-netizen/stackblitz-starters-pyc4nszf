@@ -19,7 +19,6 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
-  // Estados de conciliación
   const [conciliationResults, setConciliationResults] = useState<ConciliationItem[] | null>(null);
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
   const [siigoDataRaw, setSiigoDataRaw] = useState<SiigoTransaction[]>([]);
@@ -39,7 +38,6 @@ export default function Home() {
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // Consulta a la API Route de Siigo
       const res = await fetch('/api/siigo/journal-entries');
       if (!res.ok) throw new Error('No se pudo establecer la conexión con Siigo API');
 
@@ -48,17 +46,17 @@ export default function Home() {
 
       const extractedSiigoItems: SiigoTransaction[] = [];
 
-      // Extraer todos los ítems de las cuentas contables (1105 en adelante)
+      // Desglose exhaustivo de cada línea/partida contable
       results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
 
         items.forEach((item: any, itemIdx: number) => {
           const accountCode = String(item.account?.code || '').trim();
           
-          // Captura flexible: cualquier cuenta que inicie por clase 11 (Caja, Bancos, Remesas, Fiducias)
+          // Capturar todas las cuentas contables del grupo 11 (Caja, Bancos, Fiducias)
           if (accountCode.startsWith('11')) {
             extractedSiigoItems.push({
-              id: `${entry.id || entryIdx}-${itemIdx}`,
+              id: `${entry.id || entryIdx}-${itemIdx}-${item.account?.id || itemIdx}`,
               fecha: entry.date || '',
               comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
@@ -160,7 +158,7 @@ export default function Home() {
         {loading && (
           <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
             <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-            <span className="font-semibold text-sm">Extrayendo la totalidad de registros contables en Siigo Nube...</span>
+            <span className="font-semibold text-sm">Ejecutando ingesta paralela de comprobantes en Siigo Nube...</span>
           </div>
         )}
 

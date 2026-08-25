@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Autenticación en Siigo
+    // 1. Autenticación con Siigo API
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -22,7 +22,6 @@ export async function GET(request: Request) {
     });
 
     const authData = await authRes.json();
-
     if (!authRes.ok) {
       return NextResponse.json(
         { error: 'Autenticación rechazada por Siigo.', detalle: authData },
@@ -32,35 +31,49 @@ export async function GET(request: Request) {
 
     const token = authData.access_token;
 
-    // 2. Traer todas las páginas abarcando desde 2025 hasta 2026 para asegurar capturar todo el historial contable
-    let allResults: any[] = [];
-    let currentPage = 1;
-    let totalPages = 1;
+    // 2. Traer primera página filtrando directamente por fecha contable de documento (julio completo)
+    const queryParams = 'date_start=2026-07-01&date_end=2026-07-31&page_size=100';
+    const firstRes = await fetch(`${baseUrl}/v1/journals?page=1&${queryParams}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Partner-Id': 'PortalConciliacion',
+      },
+      cache: 'no-store',
+    });
 
-    do {
-      const entriesRes = await fetch(
-        `${baseUrl}/v1/journals?created_start=2025-01-01&created_end=2026-12-31&page=${currentPage}&page_size=100`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'Partner-Id': 'PortalConciliacion',
-          },
-          cache: 'no-store',
+    if (!firstRes.ok) {
+      return NextResponse.json({ pagination: { total_results: 0 }, results: [] });
+    }
+
+    const firstData = await firstRes.json();
+    let allResults = firstData.results || [];
+    const totalResults = firstData.pagination?.total_results || allResults.length;
+    const totalPages = Math.ceil(totalResults / 100);
+
+    // 3. Extracción paralela acelerada de todas las páginas restantes
+    if (totalPages > 1) {
+      const fetchPromises = [];
+      for (let p = 2; p <= totalPages; p++) {
+        fetchPromises.push(
+          fetch(`${baseUrl}/v1/journals?page=${p}&${queryParams}`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+              'Partner-Id': 'PortalConciliacion',
+            },
+            cache: 'no-store',
+          }).then((res) => (res.ok ? res.json() : { results: [] }))
+        );
+      }
+
+      const pagesResponses = await Promise.all(fetchPromises);
+      pagesResponses.forEach((pData) => {
+        if (pData.results && Array.isArray(pData.results)) {
+          allResults = [...allResults, ...pData.results];
         }
-      );
-
-      if (!entriesRes.ok) break;
-
-      const entriesData = await entriesRes.json();
-      const pageResults = entriesData.results || [];
-      allResults = [...allResults, ...pageResults];
-
-      const totalResults = entriesData.pagination?.total_results || allResults.length;
-      totalPages = Math.ceil(totalResults / 100);
-
-      currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 35); // Permite hasta 3500 registros
+      });
+    }
 
     return NextResponse.json({
       pagination: { total_results: allResults.length },
