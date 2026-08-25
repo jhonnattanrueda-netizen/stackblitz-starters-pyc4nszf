@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Endpoint oficial de autenticación: POST /auth
+    // 1. Autenticación con Siigo API
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -25,16 +25,16 @@ export async function GET(request: Request) {
 
     if (!authRes.ok) {
       return NextResponse.json(
-        { error: 'Autenticación rechazada por Siigo. Revisa SIIGO_USERNAME y SIIGO_ACCESS_KEY en Vercel.', detalle: authData },
+        { error: 'Autenticación rechazada por Siigo.', detalle: authData },
         { status: authRes.status }
       );
     }
 
     const token = authData.access_token;
 
-    // 2. Endpoint oficial de Comprobantes Contables: GET /v1/journals
+    // 2. Traer un lote más amplio de comprobantes contables sin restringir por fecha de creación
     const entriesRes = await fetch(
-      `${baseUrl}/v1/journals?created_start=2026-01-01&created_end=2026-12-31&page_size=100`,
+      `${baseUrl}/v1/journals?page_size=250`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
