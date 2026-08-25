@@ -11,47 +11,35 @@ interface Props {
   bankTransactions: BankTransaction[];
 }
 
-const MESES = [
-  { label: 'Todos los Meses', value: 'ALL' },
-  { label: 'Enero', value: '01' },
-  { label: 'Febrero', value: '02' },
-  { label: 'Marzo', value: '03' },
-  { label: 'Abril', value: '04' },
-  { label: 'Mayo', value: '05' },
-  { label: 'Junio', value: '06' },
-  { label: 'Julio', value: '07' },
-  { label: 'Agosto', value: '08' },
-  { label: 'Septiembre', value: '09' },
-  { label: 'Octubre', value: '10' },
-  { label: 'Noviembre', value: '11' },
-  { label: 'Diciembre', value: '12' },
-];
-
-// Función para extraer el número de mes (01 - 12) sin importar el formato de fecha
-const extractMonthNumber = (dateStr: string): string => {
+// Convierte cualquier formato (YYYY-MM-DD, DD/MM/YYYY) a formato ISO estándar YYYY-MM-DD
+const normalizeDateToISO = (dateStr: string): string => {
   if (!dateStr) return '';
   const cleanStr = dateStr.trim();
 
-  // Formato YYYY-MM-DD
   if (cleanStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-    return cleanStr.split('-')[1];
+    return cleanStr.substring(0, 10);
   }
 
-  // Formato DD/MM/YYYY o D/M/YYYY
   const parts = cleanStr.split(/[/.-]/);
-  if (parts.length >= 2) {
-    // Si la segunda parte es un número entre 1 y 12
-    const m = parseInt(parts[1], 10);
-    if (!isNaN(m) && m >= 1 && m <= 12) {
-      return String(m).padStart(2, '0');
+  if (parts.length >= 3) {
+    let day = parts[0];
+    let month = parts[1];
+    let year = parts[2];
+
+    if (parts[0].length === 4) {
+      year = parts[0];
+      month = parts[1];
+      day = parts[2];
     }
+
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  return '';
+  return cleanStr;
 };
 
 export default function ConciliationResults({ siigoDataRaw, bankTransactions }: Props) {
-  // Cuentas contables disponibles
+  // Cuentas disponibles
   const availableAccounts = useMemo(() => {
     const codes = new Set<string>();
     siigoDataRaw.forEach((item) => {
@@ -60,44 +48,51 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
     return Array.from(codes).sort();
   }, [siigoDataRaw]);
 
-  // Selectores
-  const [selectedMonth, setSelectedMonth] = useState<string>('07'); // Defecto Julio
+  // Controles de Selección de Rango de Fechas (Defecto mes completo actual)
+  const [startDate, setStartDate] = useState<string>('2026-07-01');
+  const [endDate, setEndDate] = useState<string>('2026-07-31');
   const [selectedAccountCode, setSelectedAccountCode] = useState<string>('ALL');
 
-  // Listas de pendientes activas
+  // Listas activas pendientes
   const [pendingBank, setPendingBank] = useState<BankTransaction[]>([]);
   const [pendingSiigo, setPendingSiigo] = useState<SiigoTransaction[]>([]);
   const [conciliatedCount, setConciliatedCount] = useState<number>(0);
 
-  // Filtrado reactivo al cambiar Mes o Cuenta
+  // Filtrado reactivo según Rango de Fechas y Cuenta Seleccionada
   useEffect(() => {
-    // Filtrar Banco
+    const startISO = startDate ? normalizeDateToISO(startDate) : '';
+    const endISO = endDate ? normalizeDateToISO(endDate) : '';
+
+    // Filtrar Banco por rango de fechas
     const filteredBank = bankTransactions.filter((b) => {
-      if (selectedMonth === 'ALL') return true;
-      const month = extractMonthNumber(b.fecha);
-      return month === selectedMonth;
+      const bankDateISO = normalizeDateToISO(b.fecha);
+      if (startISO && bankDateISO < startISO) return false;
+      if (endISO && bankDateISO > endISO) return false;
+      return true;
     });
 
-    // Filtrar Siigo
+    // Filtrar Siigo por cuenta y rango de fechas
     const filteredSiigo = siigoDataRaw.filter((s) => {
       const matchAccount = selectedAccountCode === 'ALL' || s.cuentaCode === selectedAccountCode;
       if (!matchAccount) return false;
-      if (selectedMonth === 'ALL') return true;
 
-      const month = extractMonthNumber(s.fecha);
-      return month === selectedMonth;
+      const siigoDateISO = normalizeDateToISO(s.fecha);
+      if (startISO && siigoDateISO < startISO) return false;
+      if (endISO && siigoDateISO > endISO) return false;
+
+      return true;
     });
 
     setPendingBank(filteredBank);
     setPendingSiigo(filteredSiigo);
     setConciliatedCount(0);
-  }, [selectedMonth, selectedAccountCode, bankTransactions, siigoDataRaw]);
+  }, [startDate, endDate, selectedAccountCode, bankTransactions, siigoDataRaw]);
 
-  // Selección manual
+  // Selección manual de filas
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
   const [selectedSiigoId, setSelectedSiigoId] = useState<string | null>(null);
 
-  // Buscadores
+  // Buscadores de texto
   const [bankSearch, setBankSearch] = useState('');
   const [siigoSearch, setSiigoSearch] = useState('');
 
@@ -120,7 +115,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
   const totalSaldoSiigo = useMemo(() => pendingSiigo.reduce((acc, curr) => acc + curr.monto, 0), [pendingSiigo]);
   const diferencia = Math.abs(totalSaldoBank - totalSaldoSiigo);
 
-  // Acción manual de Conciliación
+  // Acción manual para conciliar
   const handleConciliate = () => {
     if (!selectedBankId || !selectedSiigoId) return;
 
@@ -134,31 +129,39 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
 
   return (
     <div className="space-y-6">
-      {/* Controles Principales */}
-      <div className="flex flex-wrap justify-end items-center gap-4">
+      {/* Barra de Filtros: Rango de Fechas + Selector de Cuenta */}
+      <div className="flex flex-wrap justify-end items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        {/* Fecha Desde */}
         <div className="flex items-center gap-2">
-          <label className="text-sm font-semibold text-slate-600">Mes:</label>
-          <select
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="bg-indigo-700 text-white font-semibold text-sm px-4 py-2 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-400"
-          >
-            {MESES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          <label className="text-xs font-bold text-slate-600 uppercase">Desde:</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="bg-indigo-50 text-indigo-900 border border-indigo-200 font-semibold text-xs px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400"
+          />
         </div>
 
+        {/* Fecha Hasta */}
         <div className="flex items-center gap-2">
-          <label className="text-sm font-semibold text-slate-600">Cuenta Bancaria Siigo:</label>
+          <label className="text-xs font-bold text-slate-600 uppercase">Hasta:</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="bg-indigo-50 text-indigo-900 border border-indigo-200 font-semibold text-xs px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+        </div>
+
+        {/* Selector de Cuenta Siigo */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-bold text-slate-600 uppercase">Cuenta Siigo:</label>
           <select
             value={selectedAccountCode}
             onChange={(e) => setSelectedAccountCode(e.target.value)}
-            className="bg-indigo-700 text-white font-semibold text-sm px-4 py-2 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-400"
+            className="bg-indigo-700 text-white font-semibold text-xs px-4 py-2 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-400"
           >
-            <option value="ALL">Todas las Cuentas (1110 - 1145)</option>
+            <option value="ALL">Todas las Cuentas (1105 - 1145)</option>
             {availableAccounts.map((code) => (
               <option key={code} value={code}>
                 Cuenta {code}
@@ -185,17 +188,17 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Pendientes en Banco</span>
           <p className="text-3xl font-extrabold text-rose-500 mt-2">{pendingBank.length}</p>
-          <span className="text-xs text-slate-500 mt-1 block">Extracto del mes</span>
+          <span className="text-xs text-slate-500 mt-1 block">En el rango seleccionado</span>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Pendientes en Siigo</span>
           <p className="text-3xl font-extrabold text-indigo-600 mt-2">{pendingSiigo.length}</p>
-          <span className="text-xs text-slate-500 mt-1 block">Registros de la cuenta</span>
+          <span className="text-xs text-slate-500 mt-1 block">En la cuenta seleccionada</span>
         </div>
       </div>
 
-      {/* Buscadores */}
+      {/* Buscadores de Texto */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
@@ -220,9 +223,9 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Listas Principales */}
+      {/* Columnas Principales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Extracto Banco */}
+        {/* Banco */}
         <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
           <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide">
             Información Extracto ({filteredBankView.length})
@@ -253,12 +256,12 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
           </div>
         </div>
 
-        {/* Movimientos Siigo */}
+        {/* Siigo */}
         <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
           <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide flex justify-between items-center">
             <span>Información Movimientos Siigo ({filteredSiigoView.length})</span>
             <span className="text-xs bg-indigo-500 text-white px-2.5 py-1 rounded-md font-mono">
-              {selectedAccountCode === 'ALL' ? 'Grupo 1110-1145' : `Cta: ${selectedAccountCode}`}
+              {selectedAccountCode === 'ALL' ? 'Grupo 1105-1145' : `Cta: ${selectedAccountCode}`}
             </span>
           </div>
           <div className="p-4 flex-1 overflow-y-auto space-y-2 divide-y divide-slate-100">
@@ -313,7 +316,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Botón Acción */}
+      {/* Botón Accionar */}
       <div className="flex justify-center pt-2">
         <button
           onClick={handleConciliate}
