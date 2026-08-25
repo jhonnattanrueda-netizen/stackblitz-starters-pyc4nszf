@@ -3,7 +3,9 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   const username = process.env.SIIGO_USERNAME;
   const accessKey = process.env.SIIGO_ACCESS_KEY;
-  const baseUrl = process.env.SIIGO_API_URL || 'https://api.siigo.com';
+  
+  // URL base directa de Siigo sin depender de variables de entorno propensas a error
+  const baseUrl = 'https://api.siigo.com';
 
   if (!username || !accessKey) {
     return NextResponse.json(
@@ -13,6 +15,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    // 1. Autenticación con Siigo API
     const authRes = await fetch(`${baseUrl}/v1/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -31,6 +34,7 @@ export async function GET(request: Request) {
 
     const token = authData.access_token;
 
+    // 2. Consulta de Comprobantes Contables
     const entriesRes = await fetch(
       `${baseUrl}/v1/journal-entries?created_start=2026-01-01&created_end=2026-12-31&page_size=100`,
       {
