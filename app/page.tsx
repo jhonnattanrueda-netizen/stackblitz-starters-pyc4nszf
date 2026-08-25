@@ -19,7 +19,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
-  // Estados para renderizar la conciliación
+  // Estados de la conciliación
   const [conciliationResults, setConciliationResults] = useState<ConciliationItem[] | null>(null);
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
 
@@ -41,37 +41,46 @@ export default function Home() {
 
       let siigoTransactions: SiigoTransaction[] = [];
 
-      // 2. Consulta en vivo a la API Route de Siigo
+      // 2. Consulta a la API Route de Siigo Nube
       const res = await fetch('/api/siigo/journal-entries');
       
       if (!res.ok) {
-        throw new Error('No se pudo establecer la conexión con Siigo API');
+        throw new Error('No se pudo establecer la conexión con la API de Siigo.');
       }
 
       const data = await res.json();
       const results = data.results || [];
 
-      // 3. Mapeo del JSON oficial de Siigo Nube a nuestro tipo interno
+      // 3. Mapeo avanzado identificando la cuenta bancaria/caja real (1105, 1110, 1120)
       siigoTransactions = results.map((entry: any, index: number) => {
-        const firstItem = entry.items?.[0] || {};
+        const items = entry.items || [];
         
+        // Priorizar el ítem contable que afecta Bancos o Cajas
+        const bankItem = items.find((it: any) => {
+          const code = String(it.account?.code || '');
+          return code.startsWith('1105') || code.startsWith('1110') || code.startsWith('1120');
+        }) || items[0] || {};
+
+        // Calcular valor representativo
+        const montoCalculado = Math.abs(Number(bankItem.value || 0));
+
         return {
           id: entry.id || `siigo-${index}`,
           fecha: entry.date || '',
           comprobante: entry.name || entry.document?.name || `CC-${entry.number || index}`,
-          tercero: firstItem.customer?.identification || firstItem.customer?.id || 'Tercero No Registrado',
-          observaciones: entry.observations || firstItem.description || 'Sin detalle',
-          monto: Math.abs(Number(firstItem.value || 0)),
-          tipo: firstItem.movement === 'Credit' ? 'CREDITO' : 'DEBITO',
+          tercero: bankItem.customer?.identification || bankItem.customer?.id || 'Tercero No Especificado',
+          observaciones: entry.observations || bankItem.description || 'Sin detalle',
+          monto: montoCalculado,
+          tipo: bankItem.movement === 'Credit' ? 'CREDITO' : 'DEBITO',
         };
       });
 
-      // 4. Motor de coincidencia matemática e histórica
+      // 4. Procesar el cruce automático
       const { items, summary } = conciliarMovimientos(parsedBankData, siigoTransactions);
       setConciliationResults(items);
       setConciliationSummary(summary);
     } catch (err: any) {
-      setError(err?.message || 'Error al procesar el archivo Excel o la información de Siigo.');
+      setError(err?.message || 'Error al procesar el archivo Excel o efectuar el cruce contable.');
     } finally {
       setLoading(false);
     }
@@ -122,7 +131,7 @@ export default function Home() {
       </header>
 
       <main className="max-w-7xl mx-auto space-y-8">
-        {/* Dropzone para subir archivos */}
+        {/* Zona de Carga de Archivos */}
         {transactions.length === 0 && (
           <div
             onDrop={handleDrop}
@@ -161,15 +170,15 @@ export default function Home() {
           </div>
         )}
 
-        {/* Indicador de carga */}
+        {/* Indicador de Carga */}
         {loading && (
           <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
             <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-            <span className="font-semibold text-sm">Consultando los 454 registros contables de Siigo y cruzando movimientos...</span>
+            <span className="font-semibold text-sm">Consultando los registros contables en Siigo Nube y procesando cruce...</span>
           </div>
         )}
 
-        {/* Banner de error */}
+        {/* Mensaje de Error */}
         {error && (
           <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-3">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -177,7 +186,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Dashboard de Resultados */}
+        {/* Resultados */}
         {conciliationResults && conciliationSummary && (
           <ConciliationResults results={conciliationResults} summary={conciliationSummary} />
         )}
