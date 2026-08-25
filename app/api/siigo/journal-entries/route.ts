@@ -32,51 +32,35 @@ export async function GET(request: Request) {
 
     const token = authData.access_token;
 
-    // 2. Primera petición para obtener total de páginas
-    const firstRes = await fetch(
-      `${baseUrl}/v1/journals?page=1&page_size=100`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Partner-Id': 'PortalConciliacion',
-        },
-        cache: 'no-store',
-      }
-    );
+    // 2. Traer todas las páginas abarcando desde 2025 hasta 2026 para asegurar capturar todo el historial contable
+    let allResults: any[] = [];
+    let currentPage = 1;
+    let totalPages = 1;
 
-    if (!firstRes.ok) {
-      return NextResponse.json({ pagination: { total_results: 0 }, results: [] });
-    }
-
-    const firstData = await firstRes.json();
-    let allResults = firstData.results || [];
-    const totalResults = firstData.pagination?.total_results || allResults.length;
-    const totalPages = Math.ceil(totalResults / 100);
-
-    // 3. Descarga de las páginas restantes
-    if (totalPages > 1) {
-      const pagePromises = [];
-      for (let page = 2; page <= Math.min(totalPages, 25); page++) {
-        pagePromises.push(
-          fetch(`${baseUrl}/v1/journals?page=${page}&page_size=100`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-              'Partner-Id': 'PortalConciliacion',
-            },
-            cache: 'no-store',
-          }).then((res) => (res.ok ? res.json() : { results: [] }))
-        );
-      }
-
-      const pagesData = await Promise.all(pagePromises);
-      pagesData.forEach((pData) => {
-        if (pData.results && Array.isArray(pData.results)) {
-          allResults = [...allResults, ...pData.results];
+    do {
+      const entriesRes = await fetch(
+        `${baseUrl}/v1/journals?created_start=2025-01-01&created_end=2026-12-31&page=${currentPage}&page_size=100`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Partner-Id': 'PortalConciliacion',
+          },
+          cache: 'no-store',
         }
-      });
-    }
+      );
+
+      if (!entriesRes.ok) break;
+
+      const entriesData = await entriesRes.json();
+      const pageResults = entriesData.results || [];
+      allResults = [...allResults, ...pageResults];
+
+      const totalResults = entriesData.pagination?.total_results || allResults.length;
+      totalPages = Math.ceil(totalResults / 100);
+
+      currentPage++;
+    } while (currentPage <= totalPages && currentPage <= 35); // Permite hasta 3500 registros
 
     return NextResponse.json({
       pagination: { total_results: allResults.length },
