@@ -19,9 +19,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
-  // Estados de la conciliación
+  // Estados de conciliación
   const [conciliationResults, setConciliationResults] = useState<ConciliationItem[] | null>(null);
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
+  const [siigoDataRaw, setSiigoDataRaw] = useState<SiigoTransaction[]>([]);
 
   const processFile = async (file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/)) {
@@ -35,52 +36,52 @@ export default function Home() {
     setConciliationResults(null);
 
     try {
-      // 1. Lectura del archivo Excel bancario
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      let siigoTransactions: SiigoTransaction[] = [];
-
-      // 2. Consulta a la API Route de Siigo Nube
+      // Consulta a la API Route de Siigo Nube
       const res = await fetch('/api/siigo/journal-entries');
-      
-      if (!res.ok) {
-        throw new Error('No se pudo establecer la conexión con la API de Siigo.');
-      }
+      if (!res.ok) throw new Error('No se pudo establecer la conexión con Siigo API');
 
       const data = await res.json();
       const results = data.results || [];
 
-      // 3. Mapeo avanzado identificando la cuenta bancaria/caja real (1105, 1110, 1120)
-      siigoTransactions = results.map((entry: any, index: number) => {
+      const extractedSiigoItems: SiigoTransaction[] = [];
+
+      // Desglosar solo los ítems pertenencientes a cuentas bancarias/fiducias (1110 a 1145)
+      results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
-        
-        // Priorizar el ítem contable que afecta Bancos o Cajas
-        const bankItem = items.find((it: any) => {
-          const code = String(it.account?.code || '');
-          return code.startsWith('1105') || code.startsWith('1110') || code.startsWith('1120');
-        }) || items[0] || {};
 
-        // Calcular valor representativo
-        const montoCalculado = Math.abs(Number(bankItem.value || 0));
+        items.forEach((item: any, itemIdx: number) => {
+          const accountCode = String(item.account?.code || '').trim();
+          
+          // Verificar si pertenece al rango contable 1110 - 1145
+          const prefix = parseInt(accountCode.substring(0, 4), 10);
+          const isBankGroup = prefix >= 1110 && prefix <= 1145;
 
-        return {
-          id: entry.id || `siigo-${index}`,
-          fecha: entry.date || '',
-          comprobante: entry.name || entry.document?.name || `CC-${entry.number || index}`,
-          tercero: bankItem.customer?.identification || bankItem.customer?.id || 'Tercero No Especificado',
-          observaciones: entry.observations || bankItem.description || 'Sin detalle',
-          monto: montoCalculado,
-          tipo: bankItem.movement === 'Credit' ? 'CREDITO' : 'DEBITO',
-        };
+          if (isBankGroup) {
+            extractedSiigoItems.push({
+              id: `${entry.id || entryIdx}-${itemIdx}`,
+              fecha: entry.date || '',
+              comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
+              tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
+              observaciones: item.description || entry.observations || 'Sin detalle',
+              monto: Math.abs(Number(item.value || 0)),
+              tipo: item.movement === 'Credit' ? 'CREDITO' : 'DEBITO',
+              cuentaCode: accountCode,
+            });
+          }
+        });
       });
 
-      // 4. Procesar el cruce automático
-      const { items, summary } = conciliarMovimientos(parsedBankData, siigoTransactions);
+      setSiigoDataRaw(extractedSiigoItems);
+
+      // Motor de conciliación inicial
+      const { items, summary } = conciliarMovimientos(parsedBankData, extractedSiigoItems);
       setConciliationResults(items);
       setConciliationSummary(summary);
     } catch (err: any) {
-      setError(err?.message || 'Error al procesar el archivo Excel o efectuar el cruce contable.');
+      setError(err?.message || 'Error al procesar la información.');
     } finally {
       setLoading(false);
     }
@@ -103,6 +104,7 @@ export default function Home() {
     setFileName(null);
     setConciliationResults(null);
     setConciliationSummary(null);
+    setSiigoDataRaw([]);
     setError(null);
   };
 
@@ -131,7 +133,6 @@ export default function Home() {
       </header>
 
       <main className="max-w-7xl mx-auto space-y-8">
-        {/* Zona de Carga de Archivos */}
         {transactions.length === 0 && (
           <div
             onDrop={handleDrop}
@@ -141,25 +142,15 @@ export default function Home() {
             }}
             onDragLeave={() => setIsDragging(false)}
             className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all bg-white shadow-sm ${
-              isDragging
-                ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01]'
-                : 'border-slate-300 hover:border-slate-400'
+              isDragging ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01]' : 'border-slate-300 hover:border-slate-400'
             }`}
           >
-            <input
-              type="file"
-              id="excel-upload"
-              accept=".xlsx, .xls, .csv"
-              className="hidden"
-              onChange={handleFileChange}
-            />
+            <input type="file" id="excel-upload" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileChange} />
             <label htmlFor="excel-upload" className="cursor-pointer flex flex-col items-center">
               <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-4 border border-indigo-100 shadow-inner">
                 <Upload className="w-8 h-8" />
               </div>
-              <span className="text-xl font-bold text-slate-800">
-                Arrastra tu extracto bancario aquí
-              </span>
+              <span className="text-xl font-bold text-slate-800">Arrastra tu extracto bancario aquí</span>
               <span className="text-sm text-slate-500 mt-2 max-w-sm">
                 Soporta archivos de Excel (.xlsx, .xls) o CSV exportados desde cualquier entidad bancaria.
               </span>
@@ -170,15 +161,13 @@ export default function Home() {
           </div>
         )}
 
-        {/* Indicador de Carga */}
         {loading && (
           <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
             <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-            <span className="font-semibold text-sm">Consultando los registros contables en Siigo Nube y procesando cruce...</span>
+            <span className="font-semibold text-sm">Consultando movimientos bancarios (Cuentas 1110 - 1145) en Siigo Nube...</span>
           </div>
         )}
 
-        {/* Mensaje de Error */}
         {error && (
           <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-3">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -186,9 +175,13 @@ export default function Home() {
           </div>
         )}
 
-        {/* Resultados */}
         {conciliationResults && conciliationSummary && (
-          <ConciliationResults results={conciliationResults} summary={conciliationSummary} />
+          <ConciliationResults 
+            results={conciliationResults} 
+            summary={conciliationSummary} 
+            siigoDataRaw={siigoDataRaw} 
+            bankTransactions={transactions}
+          />
         )}
       </main>
     </div>

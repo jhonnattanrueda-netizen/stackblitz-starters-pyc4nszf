@@ -1,40 +1,56 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ConciliationItem, ConciliationSummary, BankTransaction, SiigoTransaction } from '../types/conciliacion';
-import { CheckCircle2, Search, Calendar, Check, ArrowRightLeft } from 'lucide-react';
+import { Search, Calendar, Check } from 'lucide-react';
+import { conciliarMovimientos } from '../lib/matcher';
 
 interface Props {
   results: ConciliationItem[];
   summary: ConciliationSummary;
+  siigoDataRaw: SiigoTransaction[];
+  bankTransactions: BankTransaction[];
 }
 
-export default function ConciliationResults({ results, summary }: Props) {
-  // Estado para la cuenta bancaria seleccionada
-  const [selectedAccount, setSelectedAccount] = useState<string>('111005 - Banco Principal');
+export default function ConciliationResults({ results, summary, siigoDataRaw, bankTransactions }: Props) {
+  // Extraer las cuentas únicas detectadas en el rango 1110-1145
+  const availableAccounts = useMemo(() => {
+    const codes = new Set<string>();
+    siigoDataRaw.forEach((item) => {
+      if (item.cuentaCode) codes.add(item.cuentaCode);
+    });
+    return Array.from(codes).sort();
+  }, [siigoDataRaw]);
 
-  // Estados de listas activas (pendientes por conciliar)
-  const [pendingBank, setPendingBank] = useState<BankTransaction[]>(() =>
-    results.map((r) => r.banco).filter(Boolean)
-  );
-  const [pendingSiigo, setPendingSiigo] = useState<SiigoTransaction[]>(() =>
-    results.map((r) => r.siigo).filter((s): s is SiigoTransaction => s !== null)
-  );
+  const [selectedAccountCode, setSelectedAccountCode] = useState<string>('ALL');
 
-  // Historial de conciliados manualmente
+  // Filtrar Siigo por la cuenta específica seleccionada
+  const activeSiigoList = useMemo(() => {
+    if (selectedAccountCode === 'ALL') return siigoDataRaw;
+    return siigoDataRaw.filter((item) => item.cuentaCode === selectedAccountCode);
+  }, [siigoDataRaw, selectedAccountCode]);
+
+  // Recalcular estado y pendientes al cambiar de cuenta
+  const [pendingBank, setPendingBank] = useState<BankTransaction[]>(bankTransactions);
+  const [pendingSiigo, setPendingSiigo] = useState<SiigoTransaction[]>(activeSiigoList);
   const [conciliatedCount, setConciliatedCount] = useState<number>(0);
 
-  // Estado de selección interactiva
+  useEffect(() => {
+    setPendingBank(bankTransactions);
+    setPendingSiigo(activeSiigoList);
+    setConciliatedCount(0);
+  }, [selectedAccountCode, activeSiigoList, bankTransactions]);
+
+  // Selección de filas
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
   const [selectedSiigoId, setSelectedSiigoId] = useState<string | null>(null);
 
-  // Filtros de búsqueda e historia
+  // Filtros
   const [bankSearch, setBankSearch] = useState('');
   const [bankDate, setBankDate] = useState('');
   const [siigoSearch, setSiigoSearch] = useState('');
   const [siigoDate, setSiigoDate] = useState('');
 
-  // Filtrado dinámico lado Banco
   const filteredBank = useMemo(() => {
     return pendingBank.filter((item) => {
       const matchText = (item.descripcion || '').toLowerCase().includes(bankSearch.toLowerCase());
@@ -43,7 +59,6 @@ export default function ConciliationResults({ results, summary }: Props) {
     });
   }, [pendingBank, bankSearch, bankDate]);
 
-  // Filtrado dinámico lado Siigo
   const filteredSiigo = useMemo(() => {
     return pendingSiigo.filter((item) => {
       const matchText =
@@ -55,12 +70,10 @@ export default function ConciliationResults({ results, summary }: Props) {
     });
   }, [pendingSiigo, siigoSearch, siigoDate]);
 
-  // Totales acumulados
   const totalSaldoBank = useMemo(() => pendingBank.reduce((acc, curr) => acc + curr.monto, 0), [pendingBank]);
   const totalSaldoSiigo = useMemo(() => pendingSiigo.reduce((acc, curr) => acc + curr.monto, 0), [pendingSiigo]);
   const diferencia = Math.abs(totalSaldoBank - totalSaldoSiigo);
 
-  // Acción de Conciliar Selección
   const handleConciliate = () => {
     if (!selectedBankId || !selectedSiigoId) return;
 
@@ -74,31 +87,34 @@ export default function ConciliationResults({ results, summary }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Selector de Cuenta Bancaria Siigo */}
+      {/* Selector de Cuenta Bancaria / Fiduciaria */}
       <div className="flex justify-end items-center gap-3">
         <label className="text-sm font-semibold text-slate-600">Seleccionar Cuenta Bancaria Siigo:</label>
         <select
-          value={selectedAccount}
-          onChange={(e) => setSelectedAccount(e.target.value)}
+          value={selectedAccountCode}
+          onChange={(e) => setSelectedAccountCode(e.target.value)}
           className="bg-indigo-700 text-white font-semibold text-sm px-4 py-2 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-400"
         >
-          <option value="111005 - Banco Principal">111005 - Banco Principal</option>
-          <option value="110505 - Caja General">110505 - Caja General</option>
-          <option value="112005 - Bancos Extranjero">112005 - Bancos Extranjero</option>
+          <option value="ALL">Todas las Cuentas (1110 - 1145)</option>
+          {availableAccounts.map((code) => (
+            <option key={code} value={code}>
+              Cuenta {code}
+            </option>
+          ))}
         </select>
       </div>
 
-      {/* Tarjetas de Métricas de Conciliación */}
+      {/* Tarjetas Informativas */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Conciliados Exactos</span>
-          <p className="text-3xl font-extrabold text-emerald-600 mt-2">{summary.exactos + conciliatedCount}</p>
-          <span className="text-xs text-slate-500 mt-1 block">Coincidencia 100% en monto</span>
+          <p className="text-3xl font-extrabold text-emerald-600 mt-2">{conciliatedCount}</p>
+          <span className="text-xs text-slate-500 mt-1 block">Coincidencias aplicadas</span>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Revisión Parcial</span>
-          <p className="text-3xl font-extrabold text-amber-500 mt-2">{summary.parciales}</p>
+          <p className="text-3xl font-extrabold text-amber-500 mt-2">0</p>
           <span className="text-xs text-slate-500 mt-1 block">Diferencias menores</span>
         </div>
 
@@ -115,9 +131,8 @@ export default function ConciliationResults({ results, summary }: Props) {
         </div>
       </div>
 
-      {/* Barra de Filtros Independientes */}
+      {/* Buscadores */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Filtros Banco */}
         <div className="grid grid-cols-2 gap-3">
           <div className="relative">
             <Calendar className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
@@ -141,7 +156,6 @@ export default function ConciliationResults({ results, summary }: Props) {
           </div>
         </div>
 
-        {/* Filtros Siigo */}
         <div className="grid grid-cols-2 gap-3">
           <div className="relative">
             <Calendar className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
@@ -166,9 +180,9 @@ export default function ConciliationResults({ results, summary }: Props) {
         </div>
       </div>
 
-      {/* Contenedor Principal en Dos Columnas */}
+      {/* Listas Principales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Columna Izquierda: Extracto Bancario */}
+        {/* Banco */}
         <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
           <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide">
             Información Extracto ({filteredBank.length})
@@ -181,9 +195,7 @@ export default function ConciliationResults({ results, summary }: Props) {
                   key={item.id}
                   onClick={() => setSelectedBankId(isSelected ? null : item.id)}
                   className={`p-3.5 rounded-xl cursor-pointer transition-all border flex items-center justify-between ${
-                    isSelected
-                      ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 shadow-sm'
-                      : 'border-slate-100 hover:bg-slate-50'
+                    isSelected ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 shadow-sm' : 'border-slate-100 hover:bg-slate-50'
                   }`}
                 >
                   <div className="space-y-1">
@@ -201,10 +213,13 @@ export default function ConciliationResults({ results, summary }: Props) {
           </div>
         </div>
 
-        {/* Columna Derecha: Movimientos Siigo */}
+        {/* Siigo */}
         <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
-          <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide">
-            Información Movimientos Siigo ({filteredSiigo.length})
+          <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide flex justify-between items-center">
+            <span>Información Movimientos Siigo ({filteredSiigo.length})</span>
+            <span className="text-xs bg-indigo-500 text-white px-2.5 py-1 rounded-md font-mono">
+              {selectedAccountCode === 'ALL' ? 'Grupo 1110-1145' : `Cta: ${selectedAccountCode}`}
+            </span>
           </div>
           <div className="p-4 flex-1 overflow-y-auto space-y-2 divide-y divide-slate-100">
             {filteredSiigo.map((item) => {
@@ -214,15 +229,21 @@ export default function ConciliationResults({ results, summary }: Props) {
                   key={item.id}
                   onClick={() => setSelectedSiigoId(isSelected ? null : item.id)}
                   className={`p-3.5 rounded-xl cursor-pointer transition-all border flex items-center justify-between ${
-                    isSelected
-                      ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 shadow-sm'
-                      : 'border-slate-100 hover:bg-slate-50'
+                    isSelected ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 shadow-sm' : 'border-slate-100 hover:bg-slate-50'
                   }`}
                 >
                   <div className="space-y-1">
                     <p className="font-semibold text-xs text-slate-800">{item.comprobante} - {item.tercero}</p>
                     <p className="text-[11px] text-slate-500 line-clamp-1">{item.observaciones}</p>
-                    <span className="text-[11px] text-slate-400 block">{item.fecha}</span>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                      <span>{item.fecha}</span>
+                      {item.cuentaCode && (
+                        <>
+                          <span>•</span>
+                          <span className="text-indigo-600 font-semibold">Cta: {item.cuentaCode}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <span className="font-extrabold text-sm text-slate-900">${item.monto.toLocaleString('es-CO')}</span>
                 </div>
@@ -232,7 +253,7 @@ export default function ConciliationResults({ results, summary }: Props) {
         </div>
       </div>
 
-      {/* Barra Inferior de Saldos y Botón Conciliar */}
+      {/* Totales */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center pt-2">
         <div className="bg-indigo-600 text-white p-4 rounded-xl shadow-sm text-center">
           <span className="text-xs font-semibold uppercase opacity-80 block">Saldo Final Extracto</span>
@@ -252,7 +273,7 @@ export default function ConciliationResults({ results, summary }: Props) {
         </div>
       </div>
 
-      {/* Botón Acción Principal */}
+      {/* Botón Acción */}
       <div className="flex justify-center pt-2">
         <button
           onClick={handleConciliate}
