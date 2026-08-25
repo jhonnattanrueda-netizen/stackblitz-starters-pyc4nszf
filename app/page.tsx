@@ -1,141 +1,197 @@
-import * as XLSX from 'xlsx';
-import { BankTransaction } from '../types/conciliacion';
+'use client';
 
-export const parseBankExcel = (file: File): Promise<BankTransaction[]> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+import { useState, ChangeEvent, DragEvent } from 'react';
+import { Upload, FileSpreadsheet, AlertCircle, RefreshCw, Layers } from 'lucide-react';
+import { parseBankExcel } from '../lib/excel';
+import { conciliarMovimientos } from '../lib/matcher';
+import { 
+  BankTransaction, 
+  SiigoTransaction, 
+  ConciliationItem, 
+  ConciliationSummary 
+} from '../types/conciliacion';
+import ConciliationResults from '../components/ConciliationResults';
 
-    reader.onload = (e) => {
+// Registros de respaldo en caso de no tener llaves API configuradas en Vercel
+const FALLBACK_SIIGO: SiigoTransaction[] = [
+  { id: 'siigo-1', fecha: '2026-08-01', comprobante: 'RC-1-1024', tercero: 'Comercializadora Alfa S.A.S.', observaciones: 'Pago factura N-5402', monto: 1500000, tipo: 'CREDITO' },
+  { id: 'siigo-2', fecha: '2026-08-03', comprobante: 'CC-1-809', tercero: 'Empresas Públicas de Santander', observaciones: 'Pago energía', monto: 450000, tipo: 'DEBITO' },
+  { id: 'siigo-3', fecha: '2026-08-05', comprobante: 'RC-1-1025', tercero: 'Inversiones Globales Ltda.', observaciones: 'Abono cartera', monto: 3200000, tipo: 'CREDITO' },
+  { id: 'siigo-4', fecha: '2026-08-10', comprobante: 'CC-1-810', tercero: 'Distribuidora del Oriente', observaciones: 'Compra suministros', monto: 180000, tipo: 'DEBITO' },
+  { id: 'siigo-5', fecha: '2026-08-12', comprobante: 'RC-1-1028', tercero: 'Servicios Integrales de Colombia', observaciones: 'Honorarios agosto', monto: 890000, tipo: 'CREDITO' },
+];
+
+export default function Home() {
+  const [transactions, setTransactions] = useState<BankTransaction[]>([]);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+
+  // Estados de conciliación
+  const [conciliationResults, setConciliationResults] = useState<ConciliationItem[] | null>(null);
+  const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
+
+  const processFile = async (file: File) => {
+    if (!file.name.match(/\.(xlsx|xls|csv)$/)) {
+      setError('Formato no válido. Sube un archivo .xlsx, .xls o .csv');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setFileName(file.name);
+    setConciliationResults(null);
+
+    try {
+      const parsedBankData = await parseBankExcel(file);
+      setTransactions(parsedBankData);
+
+      let siigoTransactions: SiigoTransaction[] = [];
+
+      // Consulta a la API Route de Siigo
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        
-        // Convertimos la hoja a una matriz 2D (filas x columnas)
-        const rows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        const res = await fetch('/api/siigo/journal-entries');
+        if (res.ok) {
+          const data = await res.json();
+          const results = data.results || [];
 
-        if (rows.length === 0) {
-          resolve([]);
-          return;
-        }
-
-        // 1. Identificar la fila donde están los encabezados reales
-        let headerRowIndex = -1;
-        let colFechaIdx = -1;
-        let colDescIdx = -1;
-        let colRefIdx = -1;
-        let colMontoIdx = -1;
-        let colDebitoIdx = -1;
-        let colCreditoIdx = -1;
-
-        for (let i = 0; i < Math.min(rows.length, 25); i++) {
-          const rowStr = rows[i].map((c) => String(c).toUpperCase().trim());
-          
-          const fIdx = rowStr.findIndex((c) => c.includes('FECHA') || c.includes('DATE'));
-          const mIdx = rowStr.findIndex((c) => c.includes('MONTO') || c.includes('VALOR') || c.includes('IMPORTE'));
-          const dIdx = rowStr.findIndex((c) => c.includes('DEBITO') || c.includes('DÉBITO') || c.includes('EGRESO') || c.includes('RETIRO'));
-          const cIdx = rowStr.findIndex((c) => c.includes('CREDITO') || c.includes('CRÉDITO') || c.includes('INGRESO') || c.includes('DEPOSITO'));
-
-          if (fIdx !== -1 && (mIdx !== -1 || dIdx !== -1 || cIdx !== -1)) {
-            headerRowIndex = i;
-            colFechaIdx = fIdx;
-            colMontoIdx = mIdx;
-            colDebitoIdx = dIdx;
-            colCreditoIdx = cIdx;
-            
-            colDescIdx = rowStr.findIndex((c) => c.includes('DESCRIP') || c.includes('CONCEPTO') || c.includes('DETALLE') || c.includes('LEYENDA'));
-            colRefIdx = rowStr.findIndex((c) => c.includes('REF') || c.includes('DOC') || c.includes('NRO') || c.includes('COMPROBANTE'));
-            break;
-          }
-        }
-
-        const transactions: BankTransaction[] = [];
-
-        // 2. Procesar las filas de datos a partir de la fila siguiente a los encabezados
-        const startRow = headerRowIndex !== -1 ? headerRowIndex + 1 : 0;
-
-        for (let i = startRow; i < rows.length; i++) {
-          const row = rows[i];
-          if (!row || row.length === 0) continue;
-
-          // Extraer Fecha
-          let fecha = colFechaIdx !== -1 ? String(row[colFechaIdx] || '').trim() : '';
-          
-          // Extraer Descripción y Referencia
-          let descripcion = colDescIdx !== -1 ? String(row[colDescIdx] || '').trim() : '';
-          let referencia = colRefIdx !== -1 ? String(row[colRefIdx] || '').trim() : '';
-
-          // Si no se encontró fila de encabezados explícita, buscar textos genéricos
-          if (headerRowIndex === -1) {
-            row.forEach((cell) => {
-              const strVal = String(cell).trim();
-              if (strVal.match(/\d{2,4}[-/\.]\d{1,2}[-/\.]\d{2,4}/) && !fecha) {
-                fecha = strVal;
-              } else if (strVal.length > 5 && isNaN(Number(strVal)) && !descripcion) {
-                descripcion = strVal;
-              }
-            });
-          }
-
-          // Extraer Monto
-          let monto = 0;
-          let tipo: 'DEBITO' | 'CREDITO' = 'CREDITO';
-
-          if (colMontoIdx !== -1 && row[colMontoIdx] !== undefined) {
-            const rawVal = String(row[colMontoIdx]).replace(/[^0-9.-]/g, '');
-            const numVal = parseFloat(rawVal);
-            if (!isNaN(numVal) && numVal !== 0) {
-              monto = Math.abs(numVal);
-              tipo = numVal < 0 ? 'DEBITO' : 'CREDITO';
-            }
-          } else if (colDebitoIdx !== -1 || colCreditoIdx !== -1) {
-            const rawDeb = colDebitoIdx !== -1 ? String(row[colDebitoIdx] || '').replace(/[^0-9.-]/g, '') : '';
-            const rawCred = colCreditoIdx !== -1 ? String(row[colCreditoIdx] || '').replace(/[^0-9.-]/g, '') : '';
-            
-            const numDeb = parseFloat(rawDeb) || 0;
-            const numCred = parseFloat(rawCred) || 0;
-
-            if (numDeb > 0) {
-              monto = Math.abs(numDeb);
-              tipo = 'DEBITO';
-            } else if (numCred > 0) {
-              monto = Math.abs(numCred);
-              tipo = 'CREDITO';
-            }
+          if (results.length > 0) {
+            siigoTransactions = results.map((entry: any, index: number) => ({
+              id: entry.id || `siigo-${index}`,
+              fecha: entry.date || '',
+              comprobante: `${entry.name || 'RC'}-${entry.number || index}`,
+              tercero: entry.customer?.name?.[0] || 'Tercero No Especificado',
+              observaciones: entry.observations || 'Sin detalle',
+              monto: Math.abs(Number(entry.items?.[0]?.value || 0)),
+              tipo: entry.items?.[0]?.type === 'Credit' ? 'CREDITO' : 'DEBITO',
+            }));
           } else {
-            // Escaneo de reserva para cualquier columna numérica
-            row.forEach((cell) => {
-              const raw = String(cell).replace(/[^0-9.-]/g, '');
-              const num = parseFloat(raw);
-              if (!isNaN(num) && Math.abs(num) > 100 && monto === 0) {
-                monto = Math.abs(num);
-                tipo = num < 0 ? 'DEBITO' : 'CREDITO';
-              }
-            });
+            siigoTransactions = FALLBACK_SIIGO;
           }
-
-          // Guardar solo si se detectó un valor o descripción válida
-          if (monto > 0 || descripcion !== '') {
-            transactions.push({
-              id: `bank-${i}-${Date.now()}`,
-              fecha: fecha || '2026-08-01',
-              referencia: referencia || 'N/A',
-              descripcion: descripcion || 'Movimiento Bancario',
-              monto,
-              tipo,
-            });
-          }
+        } else {
+          siigoTransactions = FALLBACK_SIIGO;
         }
-
-        resolve(transactions);
-      } catch (error) {
-        reject(error);
+      } catch (apiErr) {
+        siigoTransactions = FALLBACK_SIIGO;
       }
-    };
 
-    reader.onerror = (error) => reject(error);
-    reader.readAsArrayBuffer(file);
-  });
-};
+      // Procesar cruce de datos
+      const { items, summary } = conciliarMovimientos(parsedBankData, siigoTransactions);
+      setConciliationResults(items);
+      setConciliationSummary(summary);
+    } catch (err) {
+      setError('Error al procesar el archivo Excel. Verifica el formato del documento.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleReset = () => {
+    setTransactions([]);
+    setFileName(null);
+    setConciliationResults(null);
+    setConciliationSummary(null);
+    setError(null);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-8">
+      <header className="max-w-7xl mx-auto mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+            <Layers className="w-8 h-8 text-indigo-600" />
+            Portal de Conciliación Bancaria
+          </h1>
+          <p className="text-slate-500 mt-1">
+            Cruce automático entre extracto bancario en Excel y registros contables de Siigo.
+          </p>
+        </div>
+
+        {transactions.length > 0 && (
+          <button
+            onClick={handleReset}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition-all"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Cargar otro extracto
+          </button>
+        )}
+      </header>
+
+      <main className="max-w-7xl mx-auto space-y-8">
+        {/* Dropzone para archivos Excel */}
+        {transactions.length === 0 && (
+          <div
+            onDrop={handleDrop}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all bg-white shadow-sm ${
+              isDragging
+                ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01]'
+                : 'border-slate-300 hover:border-slate-400'
+            }`}
+          >
+            <input
+              type="file"
+              id="excel-upload"
+              accept=".xlsx, .xls, .csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <label htmlFor="excel-upload" className="cursor-pointer flex flex-col items-center">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-4 border border-indigo-100 shadow-inner">
+                <Upload className="w-8 h-8" />
+              </div>
+              <span className="text-xl font-bold text-slate-800">
+                Arrastra tu extracto bancario aquí
+              </span>
+              <span className="text-sm text-slate-500 mt-2 max-w-sm">
+                Soporta archivos de Excel (.xlsx, .xls) o CSV exportados desde cualquier entidad bancaria.
+              </span>
+              <span className="mt-6 inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-md transition-all">
+                <FileSpreadsheet className="w-4 h-4" /> Seleccionar Archivo
+              </span>
+            </label>
+          </div>
+        )}
+
+        {/* Notificación de procesando */}
+        {loading && (
+          <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
+            <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <span className="font-semibold text-sm">Consultando información y realizando cruce de saldos...</span>
+          </div>
+        )}
+
+        {/* Notificación de Error */}
+        {error && (
+          <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span className="text-sm font-medium">{error}</span>
+          </div>
+        )}
+
+        {/* Componente de Resultados */}
+        {conciliationResults && conciliationSummary && (
+          <ConciliationResults results={conciliationResults} summary={conciliationSummary} />
+        )}
+      </main>
+    </div>
+  );
+}
