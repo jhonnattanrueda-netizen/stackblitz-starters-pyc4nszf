@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Autenticación con Siigo API
+    // 1. Autenticación en Siigo
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -32,35 +32,51 @@ export async function GET(request: Request) {
 
     const token = authData.access_token;
 
-    // 2. Traer la totalidad de registros abarcando todo el año 2026 directamente por fecha de documento
-    let allResults: any[] = [];
-    let currentPage = 1;
-    let totalPages = 1;
+    // 2. Primera petición para obtener total de páginas
+    const firstRes = await fetch(
+      `${baseUrl}/v1/journals?page=1&page_size=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Partner-Id': 'PortalConciliacion',
+        },
+        cache: 'no-store',
+      }
+    );
 
-    do {
-      const entriesRes = await fetch(
-        `${baseUrl}/v1/journals?date_start=2026-01-01&date_end=2026-12-31&page=${currentPage}&page_size=100`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'Partner-Id': 'PortalConciliacion',
-          },
-          cache: 'no-store',
+    if (!firstRes.ok) {
+      return NextResponse.json({ pagination: { total_results: 0 }, results: [] });
+    }
+
+    const firstData = await firstRes.json();
+    let allResults = firstData.results || [];
+    const totalResults = firstData.pagination?.total_results || allResults.length;
+    const totalPages = Math.ceil(totalResults / 100);
+
+    // 3. Descarga de las páginas restantes
+    if (totalPages > 1) {
+      const pagePromises = [];
+      for (let page = 2; page <= Math.min(totalPages, 25); page++) {
+        pagePromises.push(
+          fetch(`${baseUrl}/v1/journals?page=${page}&page_size=100`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+              'Partner-Id': 'PortalConciliacion',
+            },
+            cache: 'no-store',
+          }).then((res) => (res.ok ? res.json() : { results: [] }))
+        );
+      }
+
+      const pagesData = await Promise.all(pagePromises);
+      pagesData.forEach((pData) => {
+        if (pData.results && Array.isArray(pData.results)) {
+          allResults = [...allResults, ...pData.results];
         }
-      );
-
-      if (!entriesRes.ok) break;
-
-      const entriesData = await entriesRes.json();
-      const pageResults = entriesData.results || [];
-      allResults = [...allResults, ...pageResults];
-
-      const totalResults = entriesData.pagination?.total_results || allResults.length;
-      totalPages = Math.ceil(totalResults / 100);
-
-      currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 20); // Extendido a 20 páginas (hasta 2000 comprobantes)
+      });
+    }
 
     return NextResponse.json({
       pagination: { total_results: allResults.length },

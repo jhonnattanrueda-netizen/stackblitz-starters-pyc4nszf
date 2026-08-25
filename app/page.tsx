@@ -39,7 +39,7 @@ export default function Home() {
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // Consulta a la API Route de Siigo Nube
+      // Consulta a la API Route de Siigo
       const res = await fetch('/api/siigo/journal-entries');
       if (!res.ok) throw new Error('No se pudo establecer la conexión con Siigo API');
 
@@ -48,18 +48,15 @@ export default function Home() {
 
       const extractedSiigoItems: SiigoTransaction[] = [];
 
-      // Desglosar solo los ítems pertenencientes a cuentas bancarias/fiducias (1110 a 1145)
+      // Extraer todos los ítems de las cuentas contables (1105 en adelante)
       results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
 
         items.forEach((item: any, itemIdx: number) => {
           const accountCode = String(item.account?.code || '').trim();
           
-          // Verificar si pertenece al rango contable 1110 - 1145
-          const prefix = parseInt(accountCode.substring(0, 4), 10);
-          const isBankGroup = prefix >= 1110 && prefix <= 1145;
-
-          if (isBankGroup) {
+          // Captura flexible: cualquier cuenta que inicie por clase 11 (Caja, Bancos, Remesas, Fiducias)
+          if (accountCode.startsWith('11')) {
             extractedSiigoItems.push({
               id: `${entry.id || entryIdx}-${itemIdx}`,
               fecha: entry.date || '',
@@ -76,7 +73,6 @@ export default function Home() {
 
       setSiigoDataRaw(extractedSiigoItems);
 
-      // Motor de conciliación inicial
       const { items, summary } = conciliarMovimientos(parsedBankData, extractedSiigoItems);
       setConciliationResults(items);
       setConciliationSummary(summary);
@@ -164,7 +160,7 @@ export default function Home() {
         {loading && (
           <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
             <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-            <span className="font-semibold text-sm">Consultando movimientos bancarios (Cuentas 1110 - 1145) en Siigo Nube...</span>
+            <span className="font-semibold text-sm">Extrayendo la totalidad de registros contables en Siigo Nube...</span>
           </div>
         )}
 
