@@ -11,31 +11,43 @@ interface Props {
   bankTransactions: BankTransaction[];
 }
 
-// Extrae el mes y día para hacer comparaciones flexibles
-const parseFlexibleDate = (dateStr: string) => {
-  if (!dateStr) return { month: 0, day: 0, year: 0 };
+// Normaliza cualquier fecha garantizando el formato numérico YYYY-MM-DD
+const parseToFullISO = (dateStr: string, fallbackYear: number = 2026): string => {
+  if (!dateStr) return '';
   const clean = dateStr.trim();
 
-  // YYYY-MM-DD
+  // Si ya es YYYY-MM-DD
   if (clean.match(/^\d{4}-\d{2}-\d{2}/)) {
-    const p = clean.split('-');
-    return { year: parseInt(p[0], 10), month: parseInt(p[1], 10), day: parseInt(p[2], 10) };
+    return clean.substring(0, 10);
   }
 
-  // DD/MM o D/M o DD/MM/YYYY
+  // Si viene como DD/MM/YYYY, D/M/YYYY o DD/MM
   const parts = clean.split(/[/.-]/);
   if (parts.length >= 2) {
-    const d = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    const y = parts[2] ? parseInt(parts[2], 10) : 0;
-    return { day: d, month: m, year: y };
+    let day = parseInt(parts[0], 10);
+    let month = parseInt(parts[1], 10);
+    let year = parts[2] ? parseInt(parts[2], 10) : fallbackYear;
+
+    // Ajuste si viene como YYYY/MM/DD
+    if (parts[0].length === 4) {
+      year = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10);
+      day = parseInt(parts[2], 10);
+    }
+
+    // Si el año es de 2 dígitos (ej. 26 -> 2026)
+    if (year < 100) year += 2000;
+
+    if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
   }
 
-  return { month: 0, day: 0, year: 0 };
+  return '';
 };
 
 export default function ConciliationResults({ siigoDataRaw, bankTransactions }: Props) {
-  // Cuentas disponibles
+  // Cuentas contables únicas
   const availableAccounts = useMemo(() => {
     const codes = new Set<string>();
     siigoDataRaw.forEach((item) => {
@@ -44,39 +56,42 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
     return Array.from(codes).sort();
   }, [siigoDataRaw]);
 
-  // Filtros de fecha (Por defecto vacíos para no ocultar nada de entrada)
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
+  // Filtros por defecto (Julio 2026 exacto)
+  const [startDate, setStartDate] = useState<string>('2026-07-01');
+  const [endDate, setEndDate] = useState<string>('2026-07-31');
   const [selectedAccountCode, setSelectedAccountCode] = useState<string>('ALL');
 
   // Listas de pendientes
-  const [pendingBank, setPendingBank] = useState<BankTransaction[]>(bankTransactions);
-  const [pendingSiigo, setPendingSiigo] = useState<SiigoTransaction[]>(siigoDataRaw);
+  const [pendingBank, setPendingBank] = useState<BankTransaction[]>([]);
+  const [pendingSiigo, setPendingSiigo] = useState<SiigoTransaction[]>([]);
   const [conciliatedCount, setConciliatedCount] = useState<number>(0);
 
-  // Filtrado reactivo flexible
+  // Filtrado estricto por AÑO - MES - DÍA
   useEffect(() => {
-    const startParsed = startDate ? parseFlexibleDate(startDate) : null;
-    const endParsed = endDate ? parseFlexibleDate(endDate) : null;
+    const startISO = startDate ? parseToFullISO(startDate) : '';
+    const endISO = endDate ? parseToFullISO(endDate) : '';
+
+    // Obtener el año de los inputs para asignarlo al extracto si no lo trae
+    const currentYearFilter = startDate ? parseInt(startDate.split('-')[0], 10) : 2026;
 
     // Filtrar Banco
     const filteredBank = bankTransactions.filter((b) => {
-      if (!startParsed && !endParsed) return true;
-      const bDate = parseFlexibleDate(b.fecha);
-      if (startParsed && bDate.month < startParsed.month) return false;
-      if (endParsed && bDate.month > endParsed.month) return false;
+      const bISO = parseToFullISO(b.fecha, currentYearFilter);
+      if (!bISO) return true;
+      if (startISO && bISO < startISO) return false;
+      if (endISO && bISO > endISO) return false;
       return true;
     });
 
-    // Filtrar Siigo
+    // Filtrar Siigo por Cuenta y por Rango de Fecha Estricto
     const filteredSiigo = siigoDataRaw.filter((s) => {
       const matchAccount = selectedAccountCode === 'ALL' || s.cuentaCode === selectedAccountCode;
       if (!matchAccount) return false;
 
-      if (!startParsed && !endParsed) return true;
-      const sDate = parseFlexibleDate(s.fecha);
-      if (startParsed && sDate.month < startParsed.month) return false;
-      if (endParsed && sDate.month > endParsed.month) return false;
+      const sISO = parseToFullISO(s.fecha);
+      if (!sISO) return true;
+      if (startISO && sISO < startISO) return false;
+      if (endISO && sISO > endISO) return false;
 
       return true;
     });
@@ -131,13 +146,13 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
 
   return (
     <div className="space-y-6">
-      {/* Controles y Filtros */}
+      {/* Barra de Filtros Estricta */}
       <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
         <button
           onClick={handleClearFilters}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 border border-slate-200 px-3 py-2 rounded-xl transition-all"
         >
-          <RefreshCw className="w-3.5 h-3.5" /> Mostrar Todos los Registros
+          <RefreshCw className="w-3.5 h-3.5" /> Mostrar Todos los Años
         </button>
 
         <div className="flex flex-wrap items-center gap-4">
@@ -179,7 +194,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Métricas */}
+      {/* Tarjetas de Resumen */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Conciliados Manuales</span>
@@ -196,13 +211,13 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Pendientes en Banco</span>
           <p className="text-3xl font-extrabold text-rose-500 mt-2">{pendingBank.length}</p>
-          <span className="text-xs text-slate-500 mt-1 block">En el filtro actual</span>
+          <span className="text-xs text-slate-500 mt-1 block">En el rango exacto</span>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Pendientes en Siigo</span>
           <p className="text-3xl font-extrabold text-indigo-600 mt-2">{pendingSiigo.length}</p>
-          <span className="text-xs text-slate-500 mt-1 block">En el filtro actual</span>
+          <span className="text-xs text-slate-500 mt-1 block">En el rango exacto</span>
         </div>
       </div>
 
@@ -231,9 +246,9 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Listas Principales */}
+      {/* Columnas Principales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Extracto Banco */}
+        {/* Banco */}
         <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
           <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide">
             Información Extracto ({filteredBankView.length})
