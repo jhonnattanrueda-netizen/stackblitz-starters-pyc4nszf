@@ -3,20 +3,18 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   const username = process.env.SIIGO_USERNAME;
   const accessKey = process.env.SIIGO_ACCESS_KEY;
-  
-  // URL base directa de Siigo sin depender de variables de entorno propensas a error
   const baseUrl = 'https://api.siigo.com';
 
   if (!username || !accessKey) {
     return NextResponse.json(
-      { error: 'Credenciales de Siigo no configuradas en Vercel (SIIGO_USERNAME / SIIGO_ACCESS_KEY).' },
+      { error: 'Credenciales de Siigo no configuradas en Vercel.' },
       { status: 401 }
     );
   }
 
   try {
-    // 1. Autenticación con Siigo API
-    const authRes = await fetch(`${baseUrl}/v1/auth`, {
+    // 1. Endpoint oficial de autenticación: POST /auth
+    const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, access_key: accessKey }),
@@ -27,16 +25,16 @@ export async function GET(request: Request) {
 
     if (!authRes.ok) {
       return NextResponse.json(
-        { error: 'Rechazado por Siigo Auth', detalle: authData },
+        { error: 'Autenticación rechazada por Siigo. Revisa SIIGO_USERNAME y SIIGO_ACCESS_KEY en Vercel.', detalle: authData },
         { status: authRes.status }
       );
     }
 
     const token = authData.access_token;
 
-    // 2. Consulta de Comprobantes Contables
+    // 2. Endpoint oficial de Comprobantes Contables: GET /v1/journals
     const entriesRes = await fetch(
-      `${baseUrl}/v1/journal-entries?created_start=2026-01-01&created_end=2026-12-31&page_size=100`,
+      `${baseUrl}/v1/journals?created_start=2026-01-01&created_end=2026-12-31&page_size=100`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
