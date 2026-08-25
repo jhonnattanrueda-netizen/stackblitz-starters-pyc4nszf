@@ -12,12 +12,12 @@ export const conciliarMovimientos = (
   let discrepancias = 0;
 
   banco.forEach((b) => {
-    // 1. Buscar coincidencia exacta en Monto
+    if (!b || isNaN(b.monto)) return;
+
+    // 1. Coincidencia exacta de monto (tolerancia de $100 pesos)
     const matchExacto = siigo.find((s) => {
-      if (siigoUsados.has(s.id)) return false;
-      
-      const difMonto = Math.abs(b.monto - s.monto);
-      return difMonto < 10; // Margen de tolerancia de 10 pesos por redondeos
+      if (siigoUsados.has(s.id) || isNaN(s.monto)) return false;
+      return Math.abs(b.monto - s.monto) <= 100;
     });
 
     if (matchExacto) {
@@ -28,17 +28,16 @@ export const conciliarMovimientos = (
         siigo: matchExacto,
         estado: 'EXACTO',
         confianza: 100,
-        observacion: 'Coincidencia exacta de monto con registro contable de Siigo.',
+        observacion: 'Coincidencia exacta de monto con registro de Siigo.',
       });
       return;
     }
 
-    // 2. Si no hay exacto, buscar coincidencia parcial por aproximación de monto
+    // 2. Coincidencia parcial por aproximación (tolerancia del 3%)
     const matchParcial = siigo.find((s) => {
-      if (siigoUsados.has(s.id)) return false;
-      
-      const difMontoPct = Math.abs(b.monto - s.monto) / b.monto;
-      return difMontoPct <= 0.02; // Tolerancia del 2%
+      if (siigoUsados.has(s.id) || isNaN(s.monto) || b.monto === 0) return false;
+      const difPct = Math.abs(b.monto - s.monto) / b.monto;
+      return difPct <= 0.03;
     });
 
     if (matchParcial) {
@@ -49,28 +48,28 @@ export const conciliarMovimientos = (
         siigo: matchParcial,
         estado: 'PARCIAL',
         confianza: 80,
-        observacion: 'Diferencia menor en valor. Se requiere revisión manual.',
+        observacion: 'Monto cercano. Requiere revisión manual.',
       });
       return;
     }
 
-    // 3. Si no encuentra coincidencia contable
+    // 3. Movimiento no conciliado
     discrepancias++;
     items.push({
       banco: b,
       siigo: null,
       estado: 'DISCREPANCIA',
       confianza: 0,
-      observacion: 'Movimiento bancario no encontrado en los registros de Siigo.',
+      observacion: 'Sin coincidencia en los registros de Siigo.',
     });
   });
 
   const summary: ConciliationSummary = {
-    exactos,
-    parciales,
-    discrepancias,
-    pendientesBanco: banco.length - exactos - parciales,
-    pendientesSiigo: siigo.length - siigoUsados.size,
+    exactos: exactos || 0,
+    parciales: parciales || 0,
+    discrepancias: discrepancias || 0,
+    pendientesBanco: Math.max(0, banco.length - exactos - parciales),
+    pendientesSiigo: Math.max(0, siigo.length - siigoUsados.size),
   };
 
   return { items, summary };
