@@ -11,31 +11,29 @@ interface Props {
   bankTransactions: BankTransaction[];
 }
 
-// Normaliza cualquier fecha garantizando el formato numérico YYYY-MM-DD
-const parseToFullISO = (dateStr: string, fallbackYear: number = 2026): string => {
+// Convierte cualquier formato a fecha estándar YYYY-MM-DD
+const parseDocumentDateToISO = (dateStr: string, defaultYear = 2026): string => {
   if (!dateStr) return '';
   const clean = dateStr.trim();
 
-  // Si ya es YYYY-MM-DD
+  // Si ya viene en formato YYYY-MM-DD
   if (clean.match(/^\d{4}-\d{2}-\d{2}/)) {
     return clean.substring(0, 10);
   }
 
-  // Si viene como DD/MM/YYYY, D/M/YYYY o DD/MM
+  // Si viene como DD/MM/YYYY, D/M/YYYY o D/M
   const parts = clean.split(/[/.-]/);
   if (parts.length >= 2) {
     let day = parseInt(parts[0], 10);
     let month = parseInt(parts[1], 10);
-    let year = parts[2] ? parseInt(parts[2], 10) : fallbackYear;
+    let year = parts[2] ? parseInt(parts[2], 10) : defaultYear;
 
-    // Ajuste si viene como YYYY/MM/DD
     if (parts[0].length === 4) {
       year = parseInt(parts[0], 10);
       month = parseInt(parts[1], 10);
       day = parseInt(parts[2], 10);
     }
 
-    // Si el año es de 2 dígitos (ej. 26 -> 2026)
     if (year < 100) year += 2000;
 
     if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
@@ -47,7 +45,7 @@ const parseToFullISO = (dateStr: string, fallbackYear: number = 2026): string =>
 };
 
 export default function ConciliationResults({ siigoDataRaw, bankTransactions }: Props) {
-  // Cuentas contables únicas
+  // Cuentas contables únicas detectadas
   const availableAccounts = useMemo(() => {
     const codes = new Set<string>();
     siigoDataRaw.forEach((item) => {
@@ -56,42 +54,43 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
     return Array.from(codes).sort();
   }, [siigoDataRaw]);
 
-  // Filtros por defecto (Julio 2026 exacto)
+  // Filtros de Rango de Fecha por Defecto (Julio 2026)
   const [startDate, setStartDate] = useState<string>('2026-07-01');
   const [endDate, setEndDate] = useState<string>('2026-07-31');
-  const [selectedAccountCode, setSelectedAccountCode] = useState<string>('ALL');
+  const [selectedAccountCode, setSelectedAccountCode] = useState<string>('11200501');
 
-  // Listas de pendientes
+  // Pendientes de Conciliación
   const [pendingBank, setPendingBank] = useState<BankTransaction[]>([]);
   const [pendingSiigo, setPendingSiigo] = useState<SiigoTransaction[]>([]);
   const [conciliatedCount, setConciliatedCount] = useState<number>(0);
 
-  // Filtrado estricto por AÑO - MES - DÍA
+  // Filtrado Estricto por FECHA DEL COMPROBANTE
   useEffect(() => {
-    const startISO = startDate ? parseToFullISO(startDate) : '';
-    const endISO = endDate ? parseToFullISO(endDate) : '';
+    const startISO = startDate ? parseDocumentDateToISO(startDate) : '';
+    const endISO = endDate ? parseDocumentDateToISO(endDate) : '';
 
-    // Obtener el año de los inputs para asignarlo al extracto si no lo trae
-    const currentYearFilter = startDate ? parseInt(startDate.split('-')[0], 10) : 2026;
+    const currentFilterYear = startDate ? parseInt(startDate.split('-')[0], 10) : 2026;
 
-    // Filtrar Banco
+    // 1. Filtrar Extracto Bancario por la fecha de la transacción
     const filteredBank = bankTransactions.filter((b) => {
-      const bISO = parseToFullISO(b.fecha, currentYearFilter);
+      const bISO = parseDocumentDateToISO(b.fecha, currentFilterYear);
       if (!bISO) return true;
       if (startISO && bISO < startISO) return false;
       if (endISO && bISO > endISO) return false;
       return true;
     });
 
-    // Filtrar Siigo por Cuenta y por Rango de Fecha Estricto
+    // 2. Filtrar Siigo evaluando UNICAMENTE la FECHA DEL COMPROBANTE (s.fecha)
     const filteredSiigo = siigoDataRaw.filter((s) => {
+      // Filtro de Cuenta Contable
       const matchAccount = selectedAccountCode === 'ALL' || s.cuentaCode === selectedAccountCode;
       if (!matchAccount) return false;
 
-      const sISO = parseToFullISO(s.fecha);
-      if (!sISO) return true;
-      if (startISO && sISO < startISO) return false;
-      if (endISO && sISO > endISO) return false;
+      // Filtro por Fecha del Documento
+      const docDateISO = parseDocumentDateToISO(s.fecha);
+      if (!docDateISO) return true;
+      if (startISO && docDateISO < startISO) return false;
+      if (endISO && docDateISO > endISO) return false;
 
       return true;
     });
@@ -101,7 +100,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
     setConciliatedCount(0);
   }, [startDate, endDate, selectedAccountCode, bankTransactions, siigoDataRaw]);
 
-  // Selección manual
+  // Selección manual para conciliar
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
   const [selectedSiigoId, setSelectedSiigoId] = useState<string | null>(null);
 
@@ -146,13 +145,13 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
 
   return (
     <div className="space-y-6">
-      {/* Barra de Filtros Estricta */}
+      {/* Selector Rango de Fecha del Comprobante + Cuenta */}
       <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
         <button
           onClick={handleClearFilters}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 border border-slate-200 px-3 py-2 rounded-xl transition-all"
         >
-          <RefreshCw className="w-3.5 h-3.5" /> Mostrar Todos los Años
+          <RefreshCw className="w-3.5 h-3.5" /> Mostrar Todos los Registros
         </button>
 
         <div className="flex flex-wrap items-center gap-4">
@@ -194,7 +193,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Tarjetas de Resumen */}
+      {/* Métricas */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Conciliados Manuales</span>
@@ -211,13 +210,13 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Pendientes en Banco</span>
           <p className="text-3xl font-extrabold text-rose-500 mt-2">{pendingBank.length}</p>
-          <span className="text-xs text-slate-500 mt-1 block">En el rango exacto</span>
+          <span className="text-xs text-slate-500 mt-1 block">En el rango del comprobante</span>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Pendientes en Siigo</span>
           <p className="text-3xl font-extrabold text-indigo-600 mt-2">{pendingSiigo.length}</p>
-          <span className="text-xs text-slate-500 mt-1 block">En el rango exacto</span>
+          <span className="text-xs text-slate-500 mt-1 block">En el rango del comprobante</span>
         </div>
       </div>
 
@@ -246,7 +245,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Columnas Principales */}
+      {/* Listas Principales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Banco */}
         <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
@@ -302,7 +301,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
                     <p className="font-semibold text-xs text-slate-800">{item.comprobante} - {item.tercero}</p>
                     <p className="text-[11px] text-slate-500 line-clamp-1">{item.observaciones}</p>
                     <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                      <span>{item.fecha}</span>
+                      <span>Fecha Comprobante: {item.fecha}</span>
                       {item.cuentaCode && (
                         <>
                           <span>•</span>
