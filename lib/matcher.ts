@@ -14,10 +14,8 @@ export const conciliarMovimientos = (
   bankTransactions.forEach((bankTx) => {
     const candidateIndex = siigoTransactions.findIndex((siigoTx) => {
       if (matchedSiigoIds.has(siigoTx.id)) return false;
-      
       const mismaNaturaleza = bankTx.tipo === siigoTx.tipo;
       const mismoMonto = Math.abs(bankTx.monto - siigoTx.monto) < 0.01;
-      
       return mismaNaturaleza && mismoMonto;
     });
 
@@ -38,49 +36,119 @@ export const conciliarMovimientos = (
   });
 
   // -------------------------------------------------------------
-  // FASE 2: Coincidencia por Suma Agrupada (N:1 - Varios Siigo -> 1 Banco)
+  // FASE 2: Agrupación N:1 (Varios Movimientos de Banco -> 1 Registro de Siigo)
+  // Caso de tu imagen: $26.000.000 + $500.000 + $6.790.000 = $33.290.000 en Siigo
   // -------------------------------------------------------------
-  const unconciliatedBank = bankTransactions.filter((b) => !matchedBankIds.has(b.id));
-  const unconciliatedSiigo = siigoTransactions.filter((s) => !matchedSiigoIds.has(s.id));
+  const unconciliatedSiigoForN1 = siigoTransactions.filter((s) => !matchedSiigoIds.has(s.id));
+  const unconciliatedBankForN1 = bankTransactions.filter((b) => !matchedBankIds.has(b.id));
 
-  unconciliatedBank.forEach((bankTx) => {
-    // Buscar combinaciones de Siigo de la misma naturaleza que sumen exactamente el monto del banco
-    const candidates = unconciliatedSiigo.filter(
-      (s) => !matchedSiigoIds.has(s.id) && s.tipo === bankTx.tipo
+  unconciliatedSiigoForN1.forEach((siigoTx) => {
+    if (matchedSiigoIds.has(siigoTx.id)) return;
+
+    const bankCandidates = unconciliatedBankForN1.filter(
+      (b) => !matchedBankIds.has(b.id) && b.tipo === siigoTx.tipo
     );
 
-    // Intento de suma de pares (2 a 1)
-    let foundGroup: SiigoTransaction[] | null = null;
-    for (let i = 0; i < candidates.length; i++) {
-      for (let j = i + 1; j < candidates.length; j++) {
-        const suma = candidates[i].monto + candidates[j].monto;
-        if (Math.abs(suma - bankTx.monto) < 0.01) {
-          foundGroup = [candidates[i], candidates[j]];
-          break;
+    let foundBankGroup: BankTransaction[] | null = null;
+
+    // Probar combinaciones de 2, 3, 4 y 5 elementos del banco
+    const buscarCombinacionBanco = (startIdx: number, currentCombo: BankTransaction[], currentSum: number, targetCount: number) => {
+      if (foundBankGroup) return;
+      if (currentCombo.length === targetCount) {
+        if (Math.abs(currentSum - siigoTx.monto) < 0.01) {
+          foundBankGroup = [...currentCombo];
+        }
+        return;
+      }
+
+      for (let i = startIdx; i < bankCandidates.length; i++) {
+        const b = bankCandidates[i];
+        if (currentSum + b.monto <= siigoTx.monto + 0.01) {
+          buscarCombinacionBanco(i + 1, [...currentCombo, b], currentSum + b.monto, targetCount);
         }
       }
-      if (foundGroup) break;
+    };
+
+    for (let count = 2; count <= 5; count++) {
+      buscarCombinacionBanco(0, [], 0, count);
+      if (foundBankGroup) break;
     }
 
-    if (foundGroup) {
-      matchedBankIds.add(bankTx.id);
-      foundGroup.forEach((s) => matchedSiigoIds.add(s.id));
+    if (foundBankGroup) {
+      const group: BankTransaction[] = foundBankGroup;
+      matchedSiigoIds.add(siigoTx.id);
+      group.forEach((b) => matchedBankIds.add(b.id));
 
-      foundGroup.forEach((siigoTx, idx) => {
+      group.forEach((bankTx, idx) => {
         conciliationItems.push({
-          id: `match-group-${bankTx.id}-${siigoTx.id}`,
-          bankTransaction: idx === 0 ? bankTx : undefined, // Asigna la cabecera al primero
-          siigoTransaction: siigoTx,
+          id: `match-n1-${bankTx.id}-${siigoTx.id}`,
+          bankTransaction: bankTx,
+          siigoTransaction: idx === 0 ? siigoTx : undefined,
           estado: 'CONCILIADO',
           diferencia: 0,
-          motivo: `Agrupación por suma parcial (${foundGroup.length} asientos en Siigo)`,
+          motivo: `Suma agrupada banco (${group.length} pagos del extracto = 1 registro Siigo)`,
         });
       });
     }
   });
 
   // -------------------------------------------------------------
-  // FASE 3: Registrar Pendientes de Banco (Sin cruce en Siigo)
+  // FASE 3: Agrupación 1:N (1 Movimiento de Banco -> Varios Registros de Siigo)
+  // -------------------------------------------------------------
+  const unconciliatedBankFor1N = bankTransactions.filter((b) => !matchedBankIds.has(b.id));
+  const unconciliatedSiigoFor1N = siigoTransactions.filter((s) => !matchedSiigoIds.has(s.id));
+
+  unconciliatedBankFor1N.forEach((bankTx) => {
+    if (matchedBankIds.has(bankTx.id)) return;
+
+    const siigoCandidates = unconciliatedSiigoFor1N.filter(
+      (s) => !matchedSiigoIds.has(s.id) && s.tipo === bankTx.tipo
+    );
+
+    let foundSiigoGroup: SiigoTransaction[] | null = null;
+
+    const buscarCombinacionSiigo = (startIdx: number, currentCombo: SiigoTransaction[], currentSum: number, targetCount: number) => {
+      if (foundSiigoGroup) return;
+      if (currentCombo.length === targetCount) {
+        if (Math.abs(currentSum - bankTx.monto) < 0.01) {
+          foundSiigoGroup = [...currentCombo];
+        }
+        return;
+      }
+
+      for (let i = startIdx; i < siigoCandidates.length; i++) {
+        const s = siigoCandidates[i];
+        if (currentSum + s.monto <= bankTx.monto + 0.01) {
+          buscarCombinacionSiigo(i + 1, [...currentCombo, s], currentSum + s.monto, targetCount);
+        }
+      }
+    };
+
+    for (let count = 2; count <= 5; count++) {
+      buscarCombinacionSiigo(0, [], 0, count);
+      if (foundSiigoGroup) break;
+    }
+
+    if (foundSiigoGroup) {
+      const group: SiigoTransaction[] = foundSiigoGroup;
+      matchedBankIds.add(bankTx.id);
+      group.forEach((s) => matchedSiigoIds.add(s.id));
+
+      group.forEach((siigoTx, idx) => {
+        conciliationItems.push({
+          id: `match-1n-${bankTx.id}-${siigoTx.id}`,
+          bankTransaction: idx === 0 ? bankTx : undefined,
+          siigoTransaction: siigoTx,
+          estado: 'CONCILIADO',
+          diferencia: 0,
+          motivo: `Suma agrupada Siigo (1 pago banco = ${group.length} asientos Siigo)`,
+        });
+      });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // FASE 4: Registrar Pendientes de Banco (Sin cruce)
   // -------------------------------------------------------------
   bankTransactions.forEach((bankTx) => {
     if (!matchedBankIds.has(bankTx.id)) {
@@ -95,7 +163,7 @@ export const conciliarMovimientos = (
   });
 
   // -------------------------------------------------------------
-  // FASE 4: Registrar Pendientes de Siigo (Sin cruce en Banco)
+  // FASE 5: Registrar Pendientes de Siigo (Sin cruce)
   // -------------------------------------------------------------
   siigoTransactions.forEach((siigoTx) => {
     if (!matchedSiigoIds.has(siigoTx.id)) {
@@ -110,7 +178,7 @@ export const conciliarMovimientos = (
   });
 
   // -------------------------------------------------------------
-  // CALCULO DEL RESUMEN FINANCIERO DE SALDOS
+  // CALCULO DEL RESUMEN FINANCIERO
   // -------------------------------------------------------------
   const totalBancoDebito = bankTransactions
     .filter((b) => b.tipo === 'DEBITO')
