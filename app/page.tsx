@@ -16,11 +16,10 @@ import ConsolidadorFinanciero from '../components/ConsolidadorFinanciero';
 export default function Home() {
   const [tabActiva, setTabActiva] = useState<'conciliacion' | 'consolidador'>('conciliacion');
 
-  // Estados de fecha bajo demanda
-  const [selectedMonth, setSelectedMonth] = useState<string>('07'); // Julio por defecto
-  const [selectedYear, setSelectedYear] = useState<string>('2026');  // 2026 por defecto
+  const [selectedMonth, setSelectedMonth] = useState<string>('07');
+  const [selectedYear, setSelectedYear] = useState<string>('2026');
+  const [selectedAccount, setSelectedAccount] = useState<string>('11200501');
 
-  // Estados de datos
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +29,6 @@ export default function Home() {
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
   const [siigoDataRaw, setSiigoDataRaw] = useState<SiigoTransaction[]>([]);
 
-  // 1. Carga inicial del Excel del Extracto Bancario
   const handleFileUpload = async (file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/)) {
       setError('Formato no válido. Sube un archivo .xlsx, .xls o .csv');
@@ -41,57 +39,76 @@ export default function Home() {
       setError(null);
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
-    } catch (err: any) {
+    } catch (err) {
       setError('Error al procesar el archivo Excel.');
     }
   };
 
-  // 2. Función que ejecuta la llamada a Siigo ÚNICAMENTE bajo la orden explícita del usuario
-  const fetchSiigoDataOnDemand = async () => {
+  // Traer exactamente la información auxiliar desde la API de Siigo Nube
+  const fetchSiigoAuxiliarFromAPI = async () => {
     if (transactions.length === 0) {
-      setError('Por favor primero carga el archivo de extracto bancario.');
+      setError('Primero carga el archivo de extracto bancario.');
       return;
     }
 
     setLoading(true);
     setError(null);
 
-    // Calcular el último día del mes seleccionado
     const lastDay = new Date(parseInt(selectedYear, 10), parseInt(selectedMonth, 10), 0).getDate();
     const startDate = `${selectedYear}-${selectedMonth}-01`;
     const endDate = `${selectedYear}-${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
 
     try {
       const res = await fetch(
-        `/api/siigo/journal-entries?startDate=${startDate}&endDate=${endDate}&t=${Date.now()}`,
+        `/api/siigo/journal-entries?accountCode=${selectedAccount}&startDate=${startDate}&endDate=${endDate}&t=${Date.now()}`,
         { cache: 'no-store' }
       );
 
-      if (!res.ok) throw new Error('Error al conectar con el servidor de Siigo.');
+      if (!res.ok) throw new Error('Error al conectar con Siigo.');
 
       const data = await res.json();
       const results = data.results || [];
 
-      const extractedSiigoItems: SiigoTransaction[] = [];
+      const extractedItems: SiigoTransaction[] = [];
 
+      // Descomprimir cada movimiento individual por cuenta contable
       results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
 
         items.forEach((item: any, itemIdx: number) => {
           const accountCode = String(item.account?.code || '').trim();
           
-          if (accountCode.startsWith('11')) {
+          // Filtrar por la cuenta contable objetivo (11200501)
+          if (accountCode === selectedAccount || accountCode.startsWith('11')) {
+            const valDebit = Number(item.debit || 0);
+            const valCredit = Number(item.credit || 0);
             const movAttr = String(item.movement || item.type || '').trim();
-            const esCredito = movAttr === 'Credit' || movAttr === 'credit' || movAttr === 'C';
-            const montoVal = Math.abs(Number(item.value || item.debit || item.credit || 0));
 
-            extractedSiigoItems.push({
-              id: `${entry.id || entryIdx}-${itemIdx}-${item.account?.id || itemIdx}`,
+            let esCredito = false;
+            let montoAbsoluto = 0;
+
+            // Mapeo idéntico al Auxiliar por Cuenta Contable
+            if (valDebit > 0) {
+              esCredito = false;
+              montoAbsoluto = valDebit;
+            } else if (valCredit > 0) {
+              esCredito = true;
+              montoAbsoluto = valCredit;
+            } else if (movAttr === 'Credit' || movAttr === 'credit' || movAttr === 'C') {
+              esCredito = true;
+              montoAbsoluto = Math.abs(Number(item.value || 0));
+            } else {
+              esCredito = false;
+              montoAbsoluto = Math.abs(Number(item.value || 0));
+            }
+
+            extractedItems.push({
+              id: `siigo-api-${entry.id || entryIdx}-${itemIdx}`,
               fecha: entry.date || '',
               comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
-              monto: montoVal,
+              monto: montoAbsoluto,
               tipo: esCredito ? 'CREDITO' : 'DEBITO',
               cuentaCode: accountCode,
             });
@@ -99,13 +116,13 @@ export default function Home() {
         });
       });
 
-      setSiigoDataRaw(extractedSiigoItems);
+      setSiigoDataRaw(extractedItems);
 
-      const { items, summary } = conciliarMovimientos(transactions, extractedSiigoItems);
+      const { items, summary } = conciliarMovimientos(transactions, extractedItems);
       setConciliationResults(items);
       setConciliationSummary(summary);
     } catch (err: any) {
-      setError(err?.message || 'Error al obtener registros de Siigo.');
+      setError(err?.message || 'Error al obtener registros del auxiliar de Siigo.');
     } finally {
       setLoading(false);
     }
@@ -125,9 +142,9 @@ export default function Home() {
 
   const handleReset = () => {
     setTransactions([]);
+    setSiigoDataRaw([]);
     setConciliationResults(null);
     setConciliationSummary(null);
-    setSiigoDataRaw([]);
     setError(null);
   };
 
@@ -172,11 +189,11 @@ export default function Home() {
       <main className="max-w-7xl mx-auto space-y-8">
         {tabActiva === 'conciliacion' ? (
           <>
-            {/* Panel de Selección de Periodo y Carga en Vivo */}
+            {/* Panel de Filtros por Fecha y Cuenta Auxiliar */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-4">
               <div className="flex flex-wrap items-center gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Mes a Conciliar:</label>
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Mes:</label>
                   <select
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
@@ -210,9 +227,19 @@ export default function Home() {
                     <option value="2027">2027</option>
                   </select>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Cuenta Contable Siigo:</label>
+                  <input
+                    type="text"
+                    value={selectedAccount}
+                    onChange={(e) => setSelectedAccount(e.target.value)}
+                    className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                    placeholder="11200501"
+                  />
+                </div>
               </div>
 
-              {/* Botón Acción para disparar la consulta a Siigo */}
               <div className="flex items-center gap-3">
                 {transactions.length > 0 && (
                   <button
@@ -224,7 +251,7 @@ export default function Home() {
                 )}
 
                 <button
-                  onClick={fetchSiigoDataOnDemand}
+                  onClick={fetchSiigoAuxiliarFromAPI}
                   disabled={loading || transactions.length === 0}
                   className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all ${
                     loading || transactions.length === 0
@@ -233,7 +260,7 @@ export default function Home() {
                   }`}
                 >
                   <Search className="w-4 h-4" />
-                  {loading ? 'Consultando Siigo...' : '🔍 Traer Registros de Siigo'}
+                  {loading ? 'Consultando Auxiliar...' : '🔍 Traer Movimiento Auxiliar Siigo'}
                 </button>
               </div>
             </div>
@@ -258,7 +285,7 @@ export default function Home() {
                   </div>
                   <span className="text-xl font-bold text-slate-800">1. Arrastra tu extracto bancario aquí</span>
                   <span className="text-sm text-slate-500 mt-2 max-w-sm">
-                    Selecciona tu archivo Excel (.xlsx, .xls) de la entidad bancaria.
+                    Carga tu extracto de banco en Excel (.xlsx, .xls) o CSV.
                   </span>
                   <span className="mt-6 inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-md transition-all">
                     <FileSpreadsheet className="w-4 h-4" /> Seleccionar Archivo
@@ -271,7 +298,7 @@ export default function Home() {
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Consultando los registros del periodo en Siigo Nube...</span>
+                <span className="font-semibold text-sm">Consultando los movimientos auxiliares de la cuenta {selectedAccount} en Siigo...</span>
               </div>
             )}
 
@@ -283,7 +310,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Muestra los Resultados ÚNICAMENTE cuando el usuario haya presionado el botón */}
+            {/* Render de Resultados */}
             {conciliationResults && conciliationSummary && (
               <ConciliationResults 
                 results={conciliationResults} 

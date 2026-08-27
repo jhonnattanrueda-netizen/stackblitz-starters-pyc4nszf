@@ -6,15 +6,9 @@ export const revalidate = 0;
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   
-  const startDate = searchParams.get('startDate');
-  const endDate = searchParams.get('endDate');
-
-  if (!startDate || !endDate) {
-    return NextResponse.json(
-      { error: 'Debe seleccionar un rango de fechas válido.' },
-      { status: 400 }
-    );
-  }
+  const accountCode = searchParams.get('accountCode') || '11200501';
+  const startDate = searchParams.get('startDate') || '2026-07-01';
+  const endDate = searchParams.get('endDate') || '2026-07-31';
 
   const username = process.env.SIIGO_USERNAME;
   const accessKey = process.env.SIIGO_ACCESS_KEY;
@@ -28,7 +22,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Autenticación con Siigo
+    // 1. Autenticación
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -42,14 +36,15 @@ export async function GET(request: Request) {
     }
 
     const token = authData.access_token;
-    let allJournals: any[] = [];
+    let allItems: any[] = [];
     let currentPage = 1;
     let totalPages = 1;
 
-    // Traer únicamente el rango exacto ordenado por fecha de creación o documento
+    // 2. Consulta del Auxiliar por Cuenta Contable (o Journals en detalle plano)
     do {
+      // Intentamos consultar la API de Siigo enviando el filtro específico por cuenta
       const entriesRes = await fetch(
-        `${baseUrl}/v1/journals?created_start=${startDate}&created_end=${endDate}&page=${currentPage}&page_size=100`,
+        `${baseUrl}/v1/journals?account_code=${accountCode}&date_start=${startDate}&date_end=${endDate}&page=${currentPage}&page_size=100`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -66,15 +61,15 @@ export async function GET(request: Request) {
       const pageResults = entriesData.results || [];
       if (pageResults.length === 0) break;
 
-      allJournals = [...allJournals, ...pageResults];
-      const totalResults = entriesData.pagination?.total_results || allJournals.length;
+      allItems = [...allItems, ...pageResults];
+      const totalResults = entriesData.pagination?.total_results || allItems.length;
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 25);
+    } while (currentPage <= totalPages && currentPage <= 30);
 
     return NextResponse.json(
-      { pagination: { total_results: allJournals.length }, results: allJournals },
+      { pagination: { total_results: allItems.length }, results: allItems },
       { headers: { 'Cache-Control': 'no-store, max-age=0' } }
     );
   } catch (error: any) {
