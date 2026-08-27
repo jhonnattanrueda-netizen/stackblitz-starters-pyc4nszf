@@ -11,7 +11,7 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
 
   if (rawData.length === 0) return [];
 
-  // Detectar Preliminar sin encabezados
+  // Detectar si es una plantilla Preliminar sin encabezados
   const isPreliminar = rawData.some((row) => {
     return (
       row &&
@@ -106,25 +106,24 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
   return transactions;
 };
 
-// 2. Parser Estricto por Columnas A-P para Movimiento Auxiliar Siigo
+// 2. Parser Estricto y Tolerante a Filas Recortadas para Movimiento Auxiliar Siigo
 export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const worksheet = workbook.Sheets[workbook.SheetNames[0]];
   
-  // Extraer las filas incluyendo las celdas vacías para mantener la alineación de A a P (16 columnas)
   const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
   const items: SiigoTransaction[] = [];
 
   rawData.forEach((row, idx) => {
-    // Verificar que la fila tenga contenido suficiente
-    if (!row || row.length < 14) return;
+    // Tolerancia a filas recortadas a la derecha por celdas vacías
+    if (!row || row.length < 5) return;
 
     // Columna A (Índice 0): Código contable
     const colA = String(row[0] ?? '').trim();
     const colALower = colA.toLowerCase();
 
-    // Omitir encabezados superiores, resúmenes de cuenta o pies de página
+    // Filtro de encabezados superiores y resúmenes de pie de página
     if (
       !colA ||
       colALower.includes('código contable') ||
@@ -139,16 +138,13 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
       return;
     }
 
-    // Mapeo directo y estricto según la estructura oficial de Siigo (A-P)
+    // Mapeo según la estructura física A-P
     const comprobante = String(row[2] ?? '').trim();  // Columna C (Índice 2)
     const fecha = String(row[4] ?? '').trim();        // Columna E (Índice 4)
     const tercero = String(row[7] ?? '').trim();      // Columna H (Índice 7)
-    
-    // Descripción: Columna I (8) o Columna J (9)
-    const descripcion = String(row[8] ?? row[9] ?? '').trim();
+    const descripcion = String(row[8] ?? row[9] ?? '').trim(); // Columna I o J
 
-    // Columna M (Índice 12): Débito
-    // Columna N (Índice 13): Crédito
+    // Columna M (Índice 12): Débito | Columna N (Índice 13): Crédito
     const valDebito = parseFloat(String(row[12] ?? 0)) || 0;
     const valCredito = parseFloat(String(row[13] ?? 0)) || 0;
 
