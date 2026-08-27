@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { ConciliationItem, ConciliationSummary, BankTransaction, SiigoTransaction } from '../types/conciliacion';
-import { Search, Check, RefreshCw } from 'lucide-react';
+import { Search, Check, RefreshCw, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 
 interface Props {
   results: ConciliationItem[];
@@ -11,17 +11,14 @@ interface Props {
   bankTransactions: BankTransaction[];
 }
 
-// Convierte cualquier formato a fecha estándar YYYY-MM-DD
 const parseDocumentDateToISO = (dateStr: string, defaultYear = 2026): string => {
   if (!dateStr) return '';
   const clean = dateStr.trim();
 
-  // Si ya viene en formato YYYY-MM-DD
   if (clean.match(/^\d{4}-\d{2}-\d{2}/)) {
     return clean.substring(0, 10);
   }
 
-  // Si viene como DD/MM/YYYY, D/M/YYYY o D/M
   const parts = clean.split(/[/.-]/);
   if (parts.length >= 2) {
     let day = parseInt(parts[0], 10);
@@ -45,7 +42,6 @@ const parseDocumentDateToISO = (dateStr: string, defaultYear = 2026): string => 
 };
 
 export default function ConciliationResults({ siigoDataRaw, bankTransactions }: Props) {
-  // Cuentas contables únicas detectadas
   const availableAccounts = useMemo(() => {
     const codes = new Set<string>();
     siigoDataRaw.forEach((item) => {
@@ -54,24 +50,19 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
     return Array.from(codes).sort();
   }, [siigoDataRaw]);
 
-  // Filtros de Rango de Fecha por Defecto (Julio 2026)
   const [startDate, setStartDate] = useState<string>('2026-07-01');
   const [endDate, setEndDate] = useState<string>('2026-07-31');
   const [selectedAccountCode, setSelectedAccountCode] = useState<string>('11200501');
 
-  // Pendientes de Conciliación
   const [pendingBank, setPendingBank] = useState<BankTransaction[]>([]);
   const [pendingSiigo, setPendingSiigo] = useState<SiigoTransaction[]>([]);
   const [conciliatedCount, setConciliatedCount] = useState<number>(0);
 
-  // Filtrado Estricto por FECHA DEL COMPROBANTE
   useEffect(() => {
     const startISO = startDate ? parseDocumentDateToISO(startDate) : '';
     const endISO = endDate ? parseDocumentDateToISO(endDate) : '';
-
     const currentFilterYear = startDate ? parseInt(startDate.split('-')[0], 10) : 2026;
 
-    // 1. Filtrar Extracto Bancario por la fecha de la transacción
     const filteredBank = bankTransactions.filter((b) => {
       const bISO = parseDocumentDateToISO(b.fecha, currentFilterYear);
       if (!bISO) return true;
@@ -80,13 +71,10 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
       return true;
     });
 
-    // 2. Filtrar Siigo evaluando UNICAMENTE la FECHA DEL COMPROBANTE (s.fecha)
     const filteredSiigo = siigoDataRaw.filter((s) => {
-      // Filtro de Cuenta Contable
       const matchAccount = selectedAccountCode === 'ALL' || s.cuentaCode === selectedAccountCode;
       if (!matchAccount) return false;
 
-      // Filtro por Fecha del Documento
       const docDateISO = parseDocumentDateToISO(s.fecha);
       if (!docDateISO) return true;
       if (startISO && docDateISO < startISO) return false;
@@ -100,11 +88,9 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
     setConciliatedCount(0);
   }, [startDate, endDate, selectedAccountCode, bankTransactions, siigoDataRaw]);
 
-  // Selección manual para conciliar
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
   const [selectedSiigoId, setSelectedSiigoId] = useState<string | null>(null);
 
-  // Buscadores
   const [bankSearch, setBankSearch] = useState('');
   const [siigoSearch, setSiigoSearch] = useState('');
 
@@ -145,7 +131,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
 
   return (
     <div className="space-y-6">
-      {/* Selector Rango de Fecha del Comprobante + Cuenta */}
+      {/* Barra de Filtros */}
       <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
         <button
           onClick={handleClearFilters}
@@ -245,9 +231,9 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Listas Principales */}
+      {/* Listas Principales en 2 Columnas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Banco */}
+        {/* Columna Izquierda: Banco */}
         <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
           <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide">
             Información Extracto ({filteredBankView.length})
@@ -255,6 +241,8 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
           <div className="p-4 flex-1 overflow-y-auto space-y-2 divide-y divide-slate-100">
             {filteredBankView.map((item) => {
               const isSelected = selectedBankId === item.id;
+              const isDebito = item.tipo === 'DEBITO';
+
               return (
                 <div
                   key={item.id}
@@ -264,21 +252,32 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
                   }`}
                 >
                   <div className="space-y-1">
-                    <p className="font-semibold text-xs text-slate-800">{item.descripcion}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-xs text-slate-800">{item.descripcion}</p>
+                      {/* Insignia DÉBITO / CRÉDITO */}
+                      <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        isDebito ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                      }`}>
+                        {isDebito ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+                        {item.tipo || 'MOV'}
+                      </span>
+                    </div>
                     <div className="flex items-center gap-2 text-[11px] text-slate-400">
                       <span>{item.fecha}</span>
                       <span>•</span>
                       <span>Ref: {item.referencia}</span>
                     </div>
                   </div>
-                  <span className="font-extrabold text-sm text-slate-900">${item.monto.toLocaleString('es-CO')}</span>
+                  <span className={`font-extrabold text-sm ${isDebito ? 'text-emerald-600' : 'text-slate-900'}`}>
+                    ${item.monto.toLocaleString('es-CO')}
+                  </span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Siigo */}
+        {/* Columna Derecha: Siigo */}
         <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
           <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide flex justify-between items-center">
             <span>Información Movimientos Siigo ({filteredSiigoView.length})</span>
@@ -289,6 +288,8 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
           <div className="p-4 flex-1 overflow-y-auto space-y-2 divide-y divide-slate-100">
             {filteredSiigoView.map((item) => {
               const isSelected = selectedSiigoId === item.id;
+              const isDebito = item.tipo === 'DEBITO';
+
               return (
                 <div
                   key={item.id}
@@ -298,10 +299,19 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
                   }`}
                 >
                   <div className="space-y-1">
-                    <p className="font-semibold text-xs text-slate-800">{item.comprobante} - {item.tercero}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-xs text-slate-800">{item.comprobante} - {item.tercero}</p>
+                      {/* Insignia DÉBITO / CRÉDITO */}
+                      <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        isDebito ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                      }`}>
+                        {isDebito ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+                        {item.tipo}
+                      </span>
+                    </div>
                     <p className="text-[11px] text-slate-500 line-clamp-1">{item.observaciones}</p>
                     <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                      <span>Fecha Comprobante: {item.fecha}</span>
+                      <span>Fecha: {item.fecha}</span>
                       {item.cuentaCode && (
                         <>
                           <span>•</span>
@@ -310,7 +320,9 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
                       )}
                     </div>
                   </div>
-                  <span className="font-extrabold text-sm text-slate-900">${item.monto.toLocaleString('es-CO')}</span>
+                  <span className={`font-extrabold text-sm ${isDebito ? 'text-emerald-600' : 'text-slate-900'}`}>
+                    ${item.monto.toLocaleString('es-CO')}
+                  </span>
                 </div>
               );
             })}
@@ -318,7 +330,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Footer Saldos */}
+      {/* Footer de Saldos */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center pt-2">
         <div className="bg-indigo-600 text-white p-4 rounded-xl shadow-sm text-center">
           <span className="text-xs font-semibold uppercase opacity-80 block">Saldo Final Extracto</span>
@@ -338,7 +350,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Botón Accionar */}
+      {/* Botón Acción Principal */}
       <div className="flex justify-center pt-2">
         <button
           onClick={handleConciliate}
