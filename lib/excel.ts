@@ -1,17 +1,14 @@
 import * as XLSX from 'xlsx';
-import { BankTransaction } from '../types/conciliacion';
+import { BankTransaction, SiigoTransaction } from '../types/conciliacion';
 
+// 1. Procesamiento del Extracto Bancario
 export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
-  const firstSheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[firstSheetName];
-
-  // Convertir a matriz
+  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
   const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
   const transactions: BankTransaction[] = [];
 
-  // Encontrar la fila de encabezado de "Movimientos"
   let headerRowIndex = -1;
   for (let i = 0; i < rawData.length; i++) {
     const row = rawData[i];
@@ -28,11 +25,8 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
 
     const fechaRaw = String(row[0] || '').trim();
     const descripcion = String(row[1] || '').trim();
-    
-    // Buscar la columna 'VALOR'
     let valorRaw = row[4] !== undefined ? row[4] : row[3];
-    
-    // Si la descripción es de encabezado o vacía, omitir
+
     if (!descripcion || descripcion.toUpperCase().includes('DESCRIPCION') || fechaRaw.toUpperCase().includes('FECHA')) {
       return;
     }
@@ -57,11 +51,73 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
         referencia: String(row[3] || 'N/A').trim(),
         descripcion: descripcion,
         monto: montoNum,
-        // Positivo = Ingreso = DÉBITO | Negativo = Egreso = CRÉDITO
         tipo: esNegativo ? 'CREDITO' : 'DEBITO',
       });
     }
   });
 
   return transactions;
+};
+
+// 2. Procesamiento del Auxiliar por Cuenta Contable de Siigo
+export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransaction[]> => {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array' });
+  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+  const items: SiigoTransaction[] = [];
+
+  // Encontrar la fila del encabezado ("Código contable")
+  let headerIndex = -1;
+  for (let i = 0; i < rawData.length; i++) {
+    const row = rawData[i];
+    if (row && String(row[0] || '').toLowerCase().includes('código contable')) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  const rowsToProcess = headerIndex !== -1 ? rawData.slice(headerIndex + 1) : rawData;
+
+  rowsToProcess.forEach((row, idx) => {
+    if (!row || row.length < 14) return;
+
+    const codCuenta = String(row[0] || '').trim();
+    if (!codCuenta || codCuenta.toLowerCase().includes('cuenta contable')) return;
+
+    const comprobante = String(row[2] || '').trim();
+    const fecha = String(row[4] || '').trim();
+    const tercero = String(row[7] || '').trim();
+    const descripcion = String(row[8] || '').trim();
+    
+    // Lectura explícita de Débito (columna 12) y Crédito (columna 13)
+    const valDebito = parseFloat(row[12]) || 0;
+    const valCredito = parseFloat(row[13]) || 0;
+
+    if (valDebito > 0) {
+      items.push({
+        id: `siigo-aux-${idx}-d`,
+        fecha,
+        comprobante,
+        tercero,
+        observaciones: descripcion,
+        monto: valDebito,
+        tipo: 'DEBITO',
+        cuentaCode: codCuenta,
+      });
+    } else if (valCredito > 0) {
+      items.push({
+        id: `siigo-aux-${idx}-c`,
+        fecha,
+        comprobante,
+        tercero,
+        observaciones: descripcion,
+        monto: valCredito,
+        tipo: 'CREDITO',
+        cuentaCode: codCuenta,
+      });
+    }
+  });
+
+  return items;
 };
