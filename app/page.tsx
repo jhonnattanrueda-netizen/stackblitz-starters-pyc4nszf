@@ -14,10 +14,8 @@ import ConciliationResults from '../components/ConciliationResults';
 import ConsolidadorFinanciero from '../components/ConsolidadorFinanciero';
 
 export default function Home() {
-  // Estado para controlar la pestaña activa (Conciliación Bancaria vs Consolidador Financiero)
   const [tabActiva, setTabActiva] = useState<'conciliacion' | 'consolidador'>('conciliacion');
 
-  // Estados para la Conciliación Bancaria
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [fileName, setFileName] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -28,7 +26,6 @@ export default function Home() {
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
   const [siigoDataRaw, setSiigoDataRaw] = useState<SiigoTransaction[]>([]);
 
-  // Lógica de procesamiento e ingesta de información para Conciliación
   const processFile = async (file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/)) {
       setError('Formato no válido. Sube un archivo .xlsx, .xls o .csv');
@@ -41,11 +38,9 @@ export default function Home() {
     setConciliationResults(null);
 
     try {
-      // 1. Procesamiento del Excel del extracto bancario
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // 2. Consulta a la API Route de Siigo Nube
       const res = await fetch('/api/siigo/journal-entries');
       if (!res.ok) throw new Error('No se pudo establecer la conexión con la API de Siigo.');
 
@@ -54,7 +49,6 @@ export default function Home() {
 
       const extractedSiigoItems: SiigoTransaction[] = [];
 
-      // 3. Extracción y asignación exacta del movimiento contable (Debit -> DÉBITO | Credit -> CRÉDITO)
       results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
 
@@ -62,8 +56,28 @@ export default function Home() {
           const accountCode = String(item.account?.code || '').trim();
           
           if (accountCode.startsWith('11')) {
-            const movType = String(item.movement || '').toLowerCase();
-            const isDebit = movType === 'debit';
+            // Evaluación exhaustiva de Débito/Crédito según la API de Siigo
+            const movStr = String(item.movement || item.type || '').toUpperCase();
+            const hasDebitVal = Number(item.debit || 0) > 0;
+            const hasCreditVal = Number(item.credit || 0) > 0;
+
+            let isDebit = false;
+            if (hasDebitVal) {
+              isDebit = true;
+            } else if (hasCreditVal) {
+              isDebit = false;
+            } else if (movStr.includes('DEBIT') || movStr === 'D') {
+              isDebit = true;
+            } else if (movStr.includes('CREDIT') || movStr === 'C') {
+              isDebit = false;
+            } else {
+              // Si el valor numérico es positivo por defecto
+              isDebit = Number(item.value || 0) >= 0;
+            }
+
+            const valorFinal = Math.abs(
+              Number(item.debit || item.credit || item.value || 0)
+            );
 
             extractedSiigoItems.push({
               id: `${entry.id || entryIdx}-${itemIdx}-${item.account?.id || itemIdx}`,
@@ -71,8 +85,8 @@ export default function Home() {
               comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
-              monto: Math.abs(Number(item.value || 0)),
-              tipo: isDebit ? 'DEBITO' : 'CREDITO', // Asignación directa y precisa desde la API de Siigo
+              monto: valorFinal,
+              tipo: isDebit ? 'DEBITO' : 'CREDITO',
               cuentaCode: accountCode,
             });
           }
@@ -114,7 +128,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-8">
-      {/* Encabezado Principal y Selector de Pestañas */}
       <header className="max-w-7xl mx-auto mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
@@ -126,7 +139,6 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Pestañas de Navegación */}
         <div className="flex bg-slate-200 p-1.5 rounded-2xl gap-1">
           <button
             onClick={() => setTabActiva('conciliacion')}
@@ -152,11 +164,9 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Contenido Dinámico según la Pestaña Activa */}
       <main className="max-w-7xl mx-auto space-y-8">
         {tabActiva === 'conciliacion' ? (
           <>
-            {/* Botón Reset de Extracto */}
             {transactions.length > 0 && (
               <div className="flex justify-end">
                 <button
@@ -169,7 +179,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Carga de Archivo Extracto (Dropzone) */}
             {transactions.length === 0 && (
               <div
                 onDrop={handleDrop}
@@ -198,15 +207,13 @@ export default function Home() {
               </div>
             )}
 
-            {/* Spinner de Carga */}
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Consultando los comprobantes contables en Siigo Nube...</span>
+                <span className="font-semibold text-sm">Consultando y clasificando comprobantes de Siigo Nube...</span>
               </div>
             )}
 
-            {/* Mensaje de Error */}
             {error && (
               <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -214,7 +221,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Tablas de Resultados de Conciliación */}
             {conciliationResults && conciliationSummary && (
               <ConciliationResults 
                 results={conciliationResults} 
@@ -225,7 +231,6 @@ export default function Home() {
             )}
           </>
         ) : (
-          /* Render de la vista del Consolidador Financiero */
           <ConsolidadorFinanciero />
         )}
       </main>

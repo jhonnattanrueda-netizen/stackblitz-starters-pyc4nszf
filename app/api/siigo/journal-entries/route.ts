@@ -13,7 +13,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Autenticación con Siigo API
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -31,11 +30,11 @@ export async function GET(request: Request) {
 
     const token = authData.access_token;
 
-    // 2. Extracción profunda sin filtro 'created_start'
     let allResults: any[] = [];
     let currentPage = 1;
     let totalPages = 1;
 
+    // Iteración de paginación continua
     do {
       const entriesRes = await fetch(
         `${baseUrl}/v1/journals?page=${currentPage}&page_size=100`,
@@ -59,7 +58,7 @@ export async function GET(request: Request) {
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 40); // Hasta 4.000 comprobantes
+    } while (currentPage <= totalPages && currentPage <= 50);
 
     return NextResponse.json({
       pagination: { total_results: allResults.length },
