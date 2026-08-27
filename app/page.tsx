@@ -38,11 +38,10 @@ export default function Home() {
     setConciliationResults(null);
 
     try {
-      // 1. Extraer extracto bancario
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // 2. Consulta a Siigo rompiendo caché con timestamp
+      // Petición con timestamp para romper cualquier almacenamiento en caché
       const res = await fetch(`/api/siigo/journal-entries?t=${Date.now()}`, {
         cache: 'no-store',
       });
@@ -53,7 +52,6 @@ export default function Home() {
 
       const extractedSiigoItems: SiigoTransaction[] = [];
 
-      // 3. Mapeo estricto de naturaleza contable para cuentas del grupo 11
       results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
 
@@ -61,30 +59,29 @@ export default function Home() {
           const accountCode = String(item.account?.code || '').trim();
           
           if (accountCode.startsWith('11')) {
-            // Lectura de la partida contable puntual
-            const valorDebit = Number(item.debit || 0);
-            const valorCredit = Number(item.credit || 0);
+            const rawVal = Number(item.value || 0);
+            const valDebit = Number(item.debit || 0);
+            const valCredit = Number(item.credit || 0);
             const movAttr = String(item.movement || item.type || '').toLowerCase();
 
-            let esDebito = false;
+            let esDebito = true;
             let montoAbsoluto = 0;
 
-            if (valorDebit > 0) {
+            // Determinación estricta de la naturaleza de la partida contable
+            if (valDebit > 0) {
               esDebito = true;
-              montoAbsoluto = valorDebit;
-            } else if (valorCredit > 0) {
+              montoAbsoluto = valDebit;
+            } else if (valCredit > 0) {
               esDebito = false;
-              montoAbsoluto = valorCredit;
-            } else if (movAttr === 'debit' || movAttr === 'd') {
+              montoAbsoluto = valCredit;
+            } else if (movAttr === 'credit' || movAttr === 'c' || rawVal < 0) {
+              esDebito = false;
+              montoAbsoluto = Math.abs(rawVal);
+            } else if (movAttr === 'debit' || movAttr === 'd' || rawVal > 0) {
               esDebito = true;
-              montoAbsoluto = Math.abs(Number(item.value || 0));
-            } else if (movAttr === 'credit' || movAttr === 'c') {
-              esDebito = false;
-              montoAbsoluto = Math.abs(Number(item.value || 0));
+              montoAbsoluto = Math.abs(rawVal);
             } else {
-              const numVal = Number(item.value || 0);
-              esDebito = numVal > 0;
-              montoAbsoluto = Math.abs(numVal);
+              montoAbsoluto = Math.abs(rawVal);
             }
 
             extractedSiigoItems.push({
@@ -218,7 +215,7 @@ export default function Home() {
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Consultando y clasificando comprobantes de Siigo Nube...</span>
+                <span className="font-semibold text-sm">Cargando y clasificando la totalidad de registros de Siigo Nube...</span>
               </div>
             )}
 

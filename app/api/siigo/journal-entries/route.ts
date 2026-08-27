@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(request: Request) {
   const username = process.env.SIIGO_USERNAME;
   const accessKey = process.env.SIIGO_ACCESS_KEY;
   const baseUrl = 'https://api.siigo.com';
@@ -16,7 +16,6 @@ export async function GET() {
   }
 
   try {
-    // 1. Autenticación directa
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -26,7 +25,7 @@ export async function GET() {
 
     const authData = await authRes.json();
     if (!authRes.ok) {
-      return NextResponse.json({ error: 'Fallo de autenticación Siigo' }, { status: 401 });
+      return NextResponse.json({ error: 'Fallo de autenticación en Siigo' }, { status: 401 });
     }
 
     const token = authData.access_token;
@@ -34,7 +33,7 @@ export async function GET() {
     let currentPage = 1;
     let totalPages = 1;
 
-    // 2. Extracción paginada sin caché
+    // Recorrido masivo de páginas de comprobantes contables
     do {
       const entriesRes = await fetch(
         `${baseUrl}/v1/journals?page=${currentPage}&page_size=100`,
@@ -44,7 +43,6 @@ export async function GET() {
             'Content-Type': 'application/json',
             'Partner-Id': 'PortalConciliacion',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
           },
           cache: 'no-store',
         }
@@ -61,7 +59,7 @@ export async function GET() {
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 50);
+    } while (currentPage <= totalPages && currentPage <= 60);
 
     return NextResponse.json(
       { pagination: { total_results: allResults.length }, results: allResults },
@@ -69,7 +67,7 @@ export async function GET() {
     );
   } catch (error: any) {
     return NextResponse.json(
-      { error: 'Error del servidor', mensaje: error?.message || String(error) },
+      { error: 'Excepción de servidor', mensaje: error?.message || String(error) },
       { status: 500 }
     );
   }
