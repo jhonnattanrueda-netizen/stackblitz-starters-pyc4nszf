@@ -41,8 +41,11 @@ export default function Home() {
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      const res = await fetch(`/api/siigo/journal-entries?t=${Date.now()}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error('Error de conexión con Siigo.');
+      // Consulta enviando el rango del mes a la API
+      const res = await fetch(`/api/siigo/journal-entries?startDate=2026-07-01&endDate=2026-07-31&t=${Date.now()}`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error('Error de conexión con la API de Siigo.');
 
       const data = await res.json();
       const results = data.results || [];
@@ -56,9 +59,10 @@ export default function Home() {
           const accountCode = String(item.account?.code || '').trim();
           
           if (accountCode.startsWith('11')) {
-            // Lectura de la clave real confirmada en la API: item.movement === "Credit"
-            const movAttr = String(item.movement || '').trim();
-            const esCredito = movAttr === 'Credit' || movAttr === 'credit';
+            const movAttr = String(item.movement || item.type || '').trim();
+            
+            // Si la partida viene marcada como 'Credit' va a CREDITO, si es 'Debit' a DEBITO
+            const esCredito = movAttr === 'Credit' || movAttr === 'credit' || movAttr === 'C';
             const montoVal = Math.abs(Number(item.value || item.debit || item.credit || 0));
 
             extractedSiigoItems.push({
@@ -192,7 +196,7 @@ export default function Home() {
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Consultando y clasificando los 2.142 comprobantes en Siigo...</span>
+                <span className="font-semibold text-sm">Consultando los datos de Siigo para el periodo seleccionado...</span>
               </div>
             )}
 

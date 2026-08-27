@@ -5,7 +5,10 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const isDebug = searchParams.get('debug') === 'true';
+  
+  // Rango de fechas dinámico (Por defecto Julio 2026)
+  const startDate = searchParams.get('startDate') || '2026-07-01';
+  const endDate = searchParams.get('endDate') || '2026-07-31';
 
   const username = process.env.SIIGO_USERNAME;
   const accessKey = process.env.SIIGO_ACCESS_KEY;
@@ -13,12 +16,13 @@ export async function GET(request: Request) {
 
   if (!username || !accessKey) {
     return NextResponse.json(
-      { error: 'Credenciales de Siigo no configuradas.' },
+      { error: 'Credenciales de Siigo no configuradas en Vercel.' },
       { status: 401 }
     );
   }
 
   try {
+    // 1. Autenticación en Siigo
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -28,7 +32,7 @@ export async function GET(request: Request) {
 
     const authData = await authRes.json();
     if (!authRes.ok) {
-      return NextResponse.json({ error: 'Fallo de autenticación en Siigo' }, { status: 401 });
+      return NextResponse.json({ error: 'Autenticación rechazada por Siigo.', detalle: authData }, { status: 401 });
     }
 
     const token = authData.access_token;
@@ -36,10 +40,10 @@ export async function GET(request: Request) {
     let currentPage = 1;
     let totalPages = 1;
 
-    // Recorrido de todas las páginas de Siigo (2.142 registros)
+    // 2. Consulta segmentada por el periodo seleccionado
     do {
       const entriesRes = await fetch(
-        `${baseUrl}/v1/journals?page=${currentPage}&page_size=100`,
+        `${baseUrl}/v1/journals?created_start=${startDate}&created_end=${endDate}&page=${currentPage}&page_size=100`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -61,14 +65,7 @@ export async function GET(request: Request) {
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 35); // Trae hasta 3.500 comprobantes
-
-    if (isDebug) {
-      return NextResponse.json({
-        total_obtenidos: allJournals.length,
-        registros: allJournals,
-      });
-    }
+    } while (currentPage <= totalPages && currentPage <= 20);
 
     return NextResponse.json(
       { pagination: { total_results: allJournals.length }, results: allJournals },
@@ -76,7 +73,7 @@ export async function GET(request: Request) {
     );
   } catch (error: any) {
     return NextResponse.json(
-      { error: 'Error interno en servidor', mensaje: error?.message || String(error) },
+      { error: 'Error del servidor al consultar Siigo', mensaje: error?.message || String(error) },
       { status: 500 }
     );
   }
