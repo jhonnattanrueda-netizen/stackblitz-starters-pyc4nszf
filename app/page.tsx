@@ -41,8 +41,8 @@ export default function Home() {
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // Petición con timestamp para romper cualquier almacenamiento en caché
-      const res = await fetch(`/api/siigo/journal-entries?t=${Date.now()}`, {
+      // Petición dinámica con Query String para anular la caché de Next.js
+      const res = await fetch(`/api/siigo/journal-entries?nocache=${Date.now()}`, {
         cache: 'no-store',
       });
       if (!res.ok) throw new Error('No se pudo establecer la conexión con la API de Siigo.');
@@ -58,30 +58,38 @@ export default function Home() {
         items.forEach((item: any, itemIdx: number) => {
           const accountCode = String(item.account?.code || '').trim();
           
+          // Captura de cuentas contables financieras (clase 11)
           if (accountCode.startsWith('11')) {
-            const rawVal = Number(item.value || 0);
+            const rawValue = Number(item.value || 0);
             const valDebit = Number(item.debit || 0);
             const valCredit = Number(item.credit || 0);
-            const movAttr = String(item.movement || item.type || '').toLowerCase();
+            const movType = String(item.movement || item.type || '').toLowerCase();
 
-            let esDebito = true;
-            let montoAbsoluto = 0;
+            let esDebito = false;
+            let montoReal = 0;
 
-            // Determinación estricta de la naturaleza de la partida contable
+            // Mapeo riguroso de naturaleza contable
             if (valDebit > 0) {
               esDebito = true;
-              montoAbsoluto = valDebit;
+              montoReal = valDebit;
             } else if (valCredit > 0) {
               esDebito = false;
-              montoAbsoluto = valCredit;
-            } else if (movAttr === 'credit' || movAttr === 'c' || rawVal < 0) {
+              montoReal = valCredit;
+            } else if (movType === 'credit' || movType === 'c') {
               esDebito = false;
-              montoAbsoluto = Math.abs(rawVal);
-            } else if (movAttr === 'debit' || movAttr === 'd' || rawVal > 0) {
+              montoReal = Math.abs(rawValue);
+            } else if (movType === 'debit' || movType === 'd') {
               esDebito = true;
-              montoAbsoluto = Math.abs(rawVal);
+              montoReal = Math.abs(rawValue);
             } else {
-              montoAbsoluto = Math.abs(rawVal);
+              // Si el concepto menciona comisiones, gastos, 4x1000 o el valor es negativo -> Crédito
+              const desc = String(item.description || entry.observations || '').toLowerCase();
+              if (desc.includes('gasto') || desc.includes('comision') || desc.includes('4x1000') || rawValue < 0) {
+                esDebito = false;
+              } else {
+                esDebito = true;
+              }
+              montoReal = Math.abs(rawValue);
             }
 
             extractedSiigoItems.push({
@@ -90,7 +98,7 @@ export default function Home() {
               comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
-              monto: montoAbsoluto,
+              monto: montoReal,
               tipo: esDebito ? 'DEBITO' : 'CREDITO',
               cuentaCode: accountCode,
             });
@@ -215,7 +223,7 @@ export default function Home() {
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Cargando y clasificando la totalidad de registros de Siigo Nube...</span>
+                <span className="font-semibold text-sm">Extrayendo la totalidad de movimientos de Siigo Nube...</span>
               </div>
             )}
 

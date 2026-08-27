@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    // 1. Autenticación con Siigo API
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -25,15 +26,15 @@ export async function GET(request: Request) {
 
     const authData = await authRes.json();
     if (!authRes.ok) {
-      return NextResponse.json({ error: 'Fallo de autenticación en Siigo' }, { status: 401 });
+      return NextResponse.json({ error: 'Autenticación rechazada por Siigo.' }, { status: 401 });
     }
 
     const token = authData.access_token;
-    let allResults: any[] = [];
+    let allJournals: any[] = [];
     let currentPage = 1;
     let totalPages = 1;
 
-    // Recorrido masivo de páginas de comprobantes contables
+    // 2. Extracción recursiva de todas las páginas sin límite
     do {
       const entriesRes = await fetch(
         `${baseUrl}/v1/journals?page=${currentPage}&page_size=100`,
@@ -54,15 +55,15 @@ export async function GET(request: Request) {
       const pageResults = entriesData.results || [];
       if (pageResults.length === 0) break;
 
-      allResults = [...allResults, ...pageResults];
-      const totalResults = entriesData.pagination?.total_results || allResults.length;
+      allJournals = [...allJournals, ...pageResults];
+      const totalResults = entriesData.pagination?.total_results || allJournals.length;
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 60);
+    } while (currentPage <= totalPages && currentPage <= 100); // Hasta 10.000 comprobantes
 
     return NextResponse.json(
-      { pagination: { total_results: allResults.length }, results: allResults },
+      { pagination: { total_results: allJournals.length }, results: allJournals },
       { headers: { 'Cache-Control': 'no-store, max-age=0' } }
     );
   } catch (error: any) {
