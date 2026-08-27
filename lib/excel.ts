@@ -52,6 +52,7 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
       }
     });
 
+    console.log(`[parseBankExcel] Preliminar detectado. ${transactions.length} movimientos parseados.`);
     return transactions;
   }
 
@@ -103,21 +104,72 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
     }
   });
 
+  console.log(`[parseBankExcel] Estándar Bancolombia. ${transactions.length} movimientos parseados de ${dataRows.length} filas revisadas.`);
   return transactions;
 };
 
 // 2. Parser Estricto y Tolerante a Filas Recortadas para Movimiento Auxiliar Siigo
 export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransaction[]> => {
+  if (!file) {
+    console.error('[parseSiigoAuxiliarExcel] No se recibió ningún archivo (file es null/undefined).');
+    return [];
+  }
+
+  console.log(`[parseSiigoAuxiliarExcel] Leyendo archivo: ${file.name} (${file.size} bytes)`);
+
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-  
-  const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
-  const items: SiigoTransaction[] = [];
 
-  rawData.forEach((row, idx) => {
-    // Tolerancia a filas recortadas a la derecha por celdas vacías
-    if (!row || row.length < 5) return;
+  if (!worksheet) {
+    console.error('[parseSiigoAuxiliarExcel] No se encontró ninguna hoja en el workbook.', workbook.SheetNames);
+    return [];
+  }
+
+  const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true, defval: null });
+  console.log(`[parseSiigoAuxiliarExcel] Filas crudas leídas: ${rawData.length}`);
+
+  const items: SiigoTransaction[] = [];
+  let filasFiltradas = 0;
+  let filasSinMonto = 0;
+
+  // Función auxiliar para convertir a número de forma robusta
+  // Soporta: número directo, string con formato "1.234.567,89", string con formato "1234567.89", vacío/null
+  const toNumber = (val: any): number => {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+
+    let str = String(val).trim();
+    if (str === '') return 0;
+
+    // Quitar símbolos de moneda y espacios
+    str = str.replace(/\$/g, '').replace(/\s/g, '');
+
+    // Si tiene coma como separador decimal y punto como separador de miles (formato es-CO)
+    if (/,\d{1,2}$/.test(str) && str.includes('.')) {
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else if (/,\d{1,2}$/.test(str)) {
+      // Solo coma decimal, sin puntos de miles
+      str = str.replace(',', '.');
+    } else {
+      // Puede tener puntos de miles sin decimales, o ya estar en formato correcto
+      str = str.replace(/,/g, '');
+    }
+
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
+  rawData.forEach((rowRaw, idx) => {
+    if (!rowRaw) return;
+
+    // Recortar celdas vacías/nulas al final de la fila (filas "recortadas")
+    const row = [...rowRaw];
+    while (row.length > 0 && (row[row.length - 1] === null || row[row.length - 1] === undefined || row[row.length - 1] === '')) {
+      row.pop();
+    }
+
+    if (row.length < 5) return;
 
     // Columna A (Índice 0): Código contable
     const colA = String(row[0] ?? '').trim();
@@ -127,6 +179,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
     if (
       !colA ||
       colALower.includes('código contable') ||
+      colALower.includes('codigo contable') ||
       colALower.includes('cuenta contable') ||
       colALower.includes('movimiento auxiliar') ||
       colALower.includes('autentic') ||
@@ -135,6 +188,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
       colALower.includes('total general') ||
       colALower.includes('procesado en')
     ) {
+      filasFiltradas++;
       return;
     }
 
@@ -145,8 +199,8 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
     const descripcion = String(row[8] ?? row[9] ?? '').trim(); // Columna I o J
 
     // Columna M (Índice 12): Débito | Columna N (Índice 13): Crédito
-    const valDebito = parseFloat(String(row[12] ?? 0)) || 0;
-    const valCredito = parseFloat(String(row[13] ?? 0)) || 0;
+    const valDebito = toNumber(row[12]);
+    const valCredito = toNumber(row[13]);
 
     if (valDebito > 0) {
       items.push({
@@ -170,8 +224,14 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
         tipo: 'CREDITO',
         cuentaCode: colA,
       });
+    } else {
+      filasSinMonto++;
     }
   });
+
+  console.log(
+    `[parseSiigoAuxiliarExcel] Resultado: ${items.length} movimientos | ${filasFiltradas} filas filtradas (encabezados/resúmenes) | ${filasSinMonto} filas con débito y crédito en 0.`
+  );
 
   return items;
 };
