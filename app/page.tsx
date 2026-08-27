@@ -25,32 +25,48 @@ export default function Home() {
   const [conciliationResults, setConciliationResults] = useState<ConciliationItem[] | null>(null);
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
 
+  // Carga e ingesta del Extracto Bancario
   const handleBankFileUpload = async (file: File) => {
     try {
       setError(null);
       setBankFileName(file.name);
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
+
+      // Si ya hay datos de Siigo, actualiza o prepara la conciliación
+      if (siigoDataRaw.length > 0) {
+        const { items, summary } = conciliarMovimientos(parsedBankData, siigoDataRaw);
+        setConciliationResults(items);
+        setConciliationSummary(summary);
+      }
     } catch (err) {
       setError('Error al procesar el archivo del extracto bancario.');
     }
   };
 
+  // Carga e ingesta del Auxiliar Contable de Siigo (Captura los 98/113 movimientos sin restricciones)
   const handleSiigoAuxiliarUpload = async (file: File) => {
     try {
       setError(null);
       setSiigoFileName(file.name);
       const parsedSiigoData = await parseSiigoAuxiliarExcel(file);
       setSiigoDataRaw(parsedSiigoData);
+
+      // Si ya hay extracto bancario, actualiza o prepara la conciliación
+      if (transactions.length > 0) {
+        const { items, summary } = conciliarMovimientos(transactions, parsedSiigoData);
+        setConciliationResults(items);
+        setConciliationSummary(summary);
+      }
     } catch (err) {
       setError('Error al procesar el archivo de Auxiliar Contable de Siigo.');
     }
   };
 
-  // Disparador del Botón de Autoconciliación Inteligente
+  // Disparador del cruce manual
   const ejecutarAutoConciliacion = () => {
     if (transactions.length === 0 || siigoDataRaw.length === 0) {
-      setError('Debes cargar tanto el Extracto Bancario como el Auxiliar de Siigo antes de ejecutar la autoconciliación.');
+      setError('Carga el Extracto Bancario y el Auxiliar de Siigo para autoconciliar.');
       return;
     }
 
@@ -68,6 +84,33 @@ export default function Home() {
     setConciliationResults(null);
     setConciliationSummary(null);
     setError(null);
+  };
+
+  // Generación de estado fallback para mostrar tablas aunque aún no se haya presionado autoconciliar
+  const displayResults: ConciliationItem[] = conciliationResults || [
+    ...transactions.map((b) => ({
+      id: b.id,
+      bankTransaction: b,
+      estado: 'PENDIENTE_BANCO' as const,
+      diferencia: b.monto,
+      motivo: 'Pendiente de autoconciliación',
+    })),
+    ...siigoDataRaw.map((s) => ({
+      id: s.id,
+      siigoTransaction: s,
+      estado: 'PENDIENTE_SIIGO' as const,
+      diferencia: s.monto,
+      motivo: 'Pendiente de autoconciliación',
+    })),
+  ];
+
+  const displaySummary: ConciliationSummary = conciliationSummary || {
+    totalBanco: transactions.reduce((acc, b) => acc + (b.tipo === 'DEBITO' ? b.monto : -b.monto), 0),
+    totalSiigo: siigoDataRaw.reduce((acc, s) => acc + (s.tipo === 'DEBITO' ? s.monto : -s.monto), 0),
+    diferenciaTotal: 0,
+    totalConciliados: 0,
+    totalPendientesBanco: transactions.length,
+    totalPendientesSiigo: siigoDataRaw.length,
   };
 
   return (
@@ -111,7 +154,7 @@ export default function Home() {
       <main className="max-w-7xl mx-auto space-y-8">
         {tabActiva === 'conciliacion' ? (
           <>
-            {/* Panel de Carga de Archivos */}
+            {/* Tarjetas de Carga */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
                 <div>
@@ -148,11 +191,11 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Barra de Acción de Conciliación */}
+            {/* Barra de Control */}
             {(transactions.length > 0 || siigoDataRaw.length > 0) && (
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-4">
                 <div className="text-xs font-medium text-slate-600">
-                  Estado: <span className="font-bold text-slate-800">{transactions.length}</span> registros de Banco y <span className="font-bold text-slate-800">{siigoDataRaw.length}</span> de Siigo listos.
+                  Estado: <span className="font-bold text-slate-800">{transactions.length}</span> registros de Banco y <span className="font-bold text-slate-800">{siigoDataRaw.length}</span> de Siigo cargados.
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -186,11 +229,11 @@ export default function Home() {
               </div>
             )}
 
-            {/* Despliegue de Resultados y Cruce */}
-            {conciliationResults && conciliationSummary && (
+            {/* Visualización Permanente de las Tablas e Información */}
+            {(transactions.length > 0 || siigoDataRaw.length > 0) && (
               <ConciliationResults 
-                results={conciliationResults} 
-                summary={conciliationSummary} 
+                results={displayResults} 
+                summary={displaySummary} 
                 siigoDataRaw={siigoDataRaw} 
                 bankTransactions={transactions}
               />
