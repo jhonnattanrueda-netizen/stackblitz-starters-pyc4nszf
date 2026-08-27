@@ -55,29 +55,32 @@ export default function Home() {
         items.forEach((item: any, itemIdx: number) => {
           const accountCode = String(item.account?.code || '').trim();
           
+          // Capturar todas las cuentas del grupo 11 (1105 a 1145)
           if (accountCode.startsWith('11')) {
-            // Evaluación exhaustiva de Débito/Crédito según la API de Siigo
-            const movStr = String(item.movement || item.type || '').toUpperCase();
-            const hasDebitVal = Number(item.debit || 0) > 0;
-            const hasCreditVal = Number(item.credit || 0) > 0;
+            const valDebit = Number(item.debit || 0);
+            const valCredit = Number(item.credit || 0);
+            const movType = String(item.movement || item.type || '').toLowerCase();
 
             let isDebit = false;
-            if (hasDebitVal) {
-              isDebit = true;
-            } else if (hasCreditVal) {
-              isDebit = false;
-            } else if (movStr.includes('DEBIT') || movStr === 'D') {
-              isDebit = true;
-            } else if (movStr.includes('CREDIT') || movStr === 'C') {
-              isDebit = false;
-            } else {
-              // Si el valor numérico es positivo por defecto
-              isDebit = Number(item.value || 0) >= 0;
-            }
+            let montoReal = 0;
 
-            const valorFinal = Math.abs(
-              Number(item.debit || item.credit || item.value || 0)
-            );
+            if (valDebit > 0) {
+              isDebit = true;
+              montoReal = valDebit;
+            } else if (valCredit > 0) {
+              isDebit = false;
+              montoReal = valCredit;
+            } else if (movType === 'debit' || movType === 'd') {
+              isDebit = true;
+              montoReal = Math.abs(Number(item.value || 0));
+            } else if (movType === 'credit' || movType === 'c') {
+              isDebit = false;
+              montoReal = Math.abs(Number(item.value || 0));
+            } else {
+              const numVal = Number(item.value || 0);
+              isDebit = numVal >= 0;
+              montoReal = Math.abs(numVal);
+            }
 
             extractedSiigoItems.push({
               id: `${entry.id || entryIdx}-${itemIdx}-${item.account?.id || itemIdx}`,
@@ -85,7 +88,7 @@ export default function Home() {
               comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
-              monto: valorFinal,
+              monto: montoReal,
               tipo: isDebit ? 'DEBITO' : 'CREDITO',
               cuentaCode: accountCode,
             });
@@ -210,7 +213,7 @@ export default function Home() {
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Consultando y clasificando comprobantes de Siigo Nube...</span>
+                <span className="font-semibold text-sm">Procesando la totalidad de registros en Siigo Nube...</span>
               </div>
             )}
 
