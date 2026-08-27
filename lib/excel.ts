@@ -129,6 +129,13 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
   const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true, defval: null });
   console.log(`[parseSiigoAuxiliarExcel] Filas crudas leídas: ${rawData.length}`);
 
+  // DEBUG TEMPORAL: imprime tal cual las primeras 15 filas para ver qué está devolviendo SheetJS
+  console.log('[parseSiigoAuxiliarExcel] === DEBUG: primeras 15 filas crudas ===');
+  for (let i = 0; i < Math.min(15, rawData.length); i++) {
+    console.log(`Fila ${i} (len=${rawData[i] ? rawData[i].length : 'null'}):`, JSON.stringify(rawData[i]));
+  }
+  console.log('[parseSiigoAuxiliarExcel] === FIN DEBUG ===');
+
   const items: SiigoTransaction[] = [];
   let filasFiltradas = 0;
   let filasSinMonto = 0;
