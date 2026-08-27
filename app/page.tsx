@@ -41,11 +41,9 @@ export default function Home() {
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // Petición dinámica con Query String para anular la caché de Next.js
-      const res = await fetch(`/api/siigo/journal-entries?nocache=${Date.now()}`, {
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error('No se pudo establecer la conexión con la API de Siigo.');
+      // Petición directa rompiendo caché
+      const res = await fetch(`/api/siigo/journal-entries?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Error al conectar con el servidor de Siigo');
 
       const data = await res.json();
       const results = data.results || [];
@@ -58,39 +56,12 @@ export default function Home() {
         items.forEach((item: any, itemIdx: number) => {
           const accountCode = String(item.account?.code || '').trim();
           
-          // Captura de cuentas contables financieras (clase 11)
           if (accountCode.startsWith('11')) {
-            const rawValue = Number(item.value || 0);
-            const valDebit = Number(item.debit || 0);
-            const valCredit = Number(item.credit || 0);
-            const movType = String(item.movement || item.type || '').toLowerCase();
-
-            let esDebito = false;
-            let montoReal = 0;
-
-            // Mapeo riguroso de naturaleza contable
-            if (valDebit > 0) {
-              esDebito = true;
-              montoReal = valDebit;
-            } else if (valCredit > 0) {
-              esDebito = false;
-              montoReal = valCredit;
-            } else if (movType === 'credit' || movType === 'c') {
-              esDebito = false;
-              montoReal = Math.abs(rawValue);
-            } else if (movType === 'debit' || movType === 'd') {
-              esDebito = true;
-              montoReal = Math.abs(rawValue);
-            } else {
-              // Si el concepto menciona comisiones, gastos, 4x1000 o el valor es negativo -> Crédito
-              const desc = String(item.description || entry.observations || '').toLowerCase();
-              if (desc.includes('gasto') || desc.includes('comision') || desc.includes('4x1000') || rawValue < 0) {
-                esDebito = false;
-              } else {
-                esDebito = true;
-              }
-              montoReal = Math.abs(rawValue);
-            }
+            // Evaluamos la propiedad 'movement' estricta que devuelve Siigo Nube ('Debit' vs 'Credit')
+            const movementRaw = String(item.movement || item.type || '').trim();
+            const isCredit = movementRaw === 'Credit' || movementRaw === 'credit' || movementRaw === 'C';
+            
+            const montoAbsoluto = Math.abs(Number(item.value || item.debit || item.credit || 0));
 
             extractedSiigoItems.push({
               id: `${entry.id || entryIdx}-${itemIdx}-${item.account?.id || itemIdx}`,
@@ -98,8 +69,9 @@ export default function Home() {
               comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
-              monto: montoReal,
-              tipo: esDebito ? 'DEBITO' : 'CREDITO',
+              monto: montoAbsoluto,
+              // Asignación explícita: Si es Credit va a CREDITO, de lo contrario a DEBITO
+              tipo: isCredit ? 'CREDITO' : 'DEBITO',
               cuentaCode: accountCode,
             });
           }
@@ -112,7 +84,7 @@ export default function Home() {
       setConciliationResults(items);
       setConciliationSummary(summary);
     } catch (err: any) {
-      setError(err?.message || 'Error al procesar la información de conciliación.');
+      setError(err?.message || 'Error procesando datos.');
     } finally {
       setLoading(false);
     }
@@ -223,7 +195,7 @@ export default function Home() {
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Extrayendo la totalidad de movimientos de Siigo Nube...</span>
+                <span className="font-semibold text-sm">Consultando los comprobantes contables en Siigo Nube...</span>
               </div>
             )}
 

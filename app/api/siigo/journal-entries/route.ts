@@ -4,19 +4,22 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const isDebug = searchParams.get('debug') === 'true';
+
   const username = process.env.SIIGO_USERNAME;
   const accessKey = process.env.SIIGO_ACCESS_KEY;
   const baseUrl = 'https://api.siigo.com';
 
   if (!username || !accessKey) {
     return NextResponse.json(
-      { error: 'Credenciales de Siigo no configuradas.' },
+      { error: 'Credenciales de Siigo no configuradas en Vercel.' },
       { status: 401 }
     );
   }
 
   try {
-    // 1. Autenticación con Siigo API
+    // 1. Autenticación
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -26,7 +29,7 @@ export async function GET(request: Request) {
 
     const authData = await authRes.json();
     if (!authRes.ok) {
-      return NextResponse.json({ error: 'Autenticación rechazada por Siigo.' }, { status: 401 });
+      return NextResponse.json({ error: 'Autenticación rechazada por Siigo', detalle: authData }, { status: 401 });
     }
 
     const token = authData.access_token;
@@ -34,7 +37,7 @@ export async function GET(request: Request) {
     let currentPage = 1;
     let totalPages = 1;
 
-    // 2. Extracción recursiva de todas las páginas sin límite
+    // 2. Traer páginas
     do {
       const entriesRes = await fetch(
         `${baseUrl}/v1/journals?page=${currentPage}&page_size=100`,
@@ -43,7 +46,6 @@ export async function GET(request: Request) {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
             'Partner-Id': 'PortalConciliacion',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
           },
           cache: 'no-store',
         }
@@ -60,7 +62,15 @@ export async function GET(request: Request) {
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 100); // Hasta 10.000 comprobantes
+    } while (currentPage <= totalPages && currentPage <= 30);
+
+    // Si abres la URL con ?debug=true en el navegador, verás el objeto puro que manda Siigo
+    if (isDebug) {
+      return NextResponse.json({
+        total_recibidos: allJournals.length,
+        primeros_3_registros: allJournals.slice(0, 3),
+      });
+    }
 
     return NextResponse.json(
       { pagination: { total_results: allJournals.length }, results: allJournals },
@@ -68,7 +78,7 @@ export async function GET(request: Request) {
     );
   } catch (error: any) {
     return NextResponse.json(
-      { error: 'Excepción de servidor', mensaje: error?.message || String(error) },
+      { error: 'Error de servidor', mensaje: error?.message || String(error) },
       { status: 500 }
     );
   }
