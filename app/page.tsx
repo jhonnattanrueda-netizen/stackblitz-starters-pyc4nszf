@@ -41,10 +41,11 @@ export default function Home() {
     setConciliationResults(null);
 
     try {
+      // 1. Procesamiento del Excel del extracto bancario
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // Consulta a la API Route de Siigo Nube
+      // 2. Consulta a la API Route de Siigo Nube
       const res = await fetch('/api/siigo/journal-entries');
       if (!res.ok) throw new Error('No se pudo establecer la conexión con la API de Siigo.');
 
@@ -53,7 +54,7 @@ export default function Home() {
 
       const extractedSiigoItems: SiigoTransaction[] = [];
 
-      // Extracción y mapeo de naturaleza contable (Débito/Crédito)
+      // 3. Extracción y asignación exacta del movimiento contable (Debit -> DÉBITO | Credit -> CRÉDITO)
       results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
 
@@ -61,7 +62,8 @@ export default function Home() {
           const accountCode = String(item.account?.code || '').trim();
           
           if (accountCode.startsWith('11')) {
-            const isCredit = item.movement === 'Credit';
+            const movType = String(item.movement || '').toLowerCase();
+            const isDebit = movType === 'debit';
 
             extractedSiigoItems.push({
               id: `${entry.id || entryIdx}-${itemIdx}-${item.account?.id || itemIdx}`,
@@ -70,7 +72,7 @@ export default function Home() {
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
               monto: Math.abs(Number(item.value || 0)),
-              tipo: isCredit ? 'CREDITO' : 'DEBITO', // Preserva la naturaleza exacta devuelta por Siigo
+              tipo: isDebit ? 'DEBITO' : 'CREDITO', // Asignación directa y precisa desde la API de Siigo
               cuentaCode: accountCode,
             });
           }
@@ -223,7 +225,7 @@ export default function Home() {
             )}
           </>
         ) : (
-          /* Render de la vista del Consolidador */
+          /* Render de la vista del Consolidador Financiero */
           <ConsolidadorFinanciero />
         )}
       </main>
