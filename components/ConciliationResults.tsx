@@ -29,10 +29,10 @@ const OTROS_GASTOS_INDIVIDUALES = [
   'C MANEJO TARJ DEB',
   'COBRO IVA PAGOS AUTOMATICOS',
   'COMIS SWIFT GIRO VTA MDA EXT',
-  'CUOTA MANEJO CUPO ROTATIVO',
-  'CUOTA PLAN CANAL NEGOCIOS',
   'IVA CUOTA MANEJO CUPO ROTATIVO',
   'IVA CUOTA PLAN CANAL NEGOCIOS',
+  'CUOTA MANEJO CUPO ROTATIVO',
+  'CUOTA PLAN CANAL NEGOCIOS',
   'RETENCION EN LA FUENTE',
   'VALOR IVA',
   'DEBITO POR RECHAZOS PAGOS',
@@ -78,7 +78,7 @@ export default function ConciliationResults({
   const totalMontoGastos = pendientesGastosBanco.reduce((acc, b) => acc + b.monto, 0);
 
   // --------------------------------------------------------------------------
-  // CÁLCULO DE RESUMEN DE TOTALES PARA LA SECCIÓN INFERIOR
+  // CÁLCULO DE RESUMEN DE TOTALES
   // --------------------------------------------------------------------------
   const gastosParaTotales = bankTransactions.filter((b) => esGastoBancario(b.descripcion));
 
@@ -94,13 +94,24 @@ export default function ConciliationResults({
   );
   const totalGMF = txGMF.reduce((acc, b) => acc + b.monto, 0);
 
-  // 3. Desglose Individual del resto de conceptos
+  // 3. Desglose Individual Sin Traslapes
   const resumenOtrosGastos: { concepto: string; total: number; cantidad: number }[] = [];
 
   OTROS_GASTOS_INDIVIDUALES.forEach((concepto) => {
-    const coincidencia = gastosParaTotales.filter((b) =>
-      b.descripcion.toUpperCase().includes(concepto)
-    );
+    const coincidencia = gastosParaTotales.filter((b) => {
+      const desc = b.descripcion.toUpperCase().trim();
+      
+      // Control de exclusión para evitar que "CUOTA..." sume las filas de "IVA CUOTA..."
+      if (concepto === 'CUOTA PLAN CANAL NEGOCIOS') {
+        return desc.includes('CUOTA PLAN CANAL NEGOCIOS') && !desc.includes('IVA CUOTA PLAN CANAL NEGOCIOS');
+      }
+      if (concepto === 'CUOTA MANEJO CUPO ROTATIVO') {
+        return desc.includes('CUOTA MANEJO CUPO ROTATIVO') && !desc.includes('IVA CUOTA MANEJO CUPO ROTATIVO');
+      }
+
+      return desc.includes(concepto);
+    });
+
     if (coincidencia.length > 0) {
       const suma = coincidencia.reduce((acc, b) => acc + b.monto, 0);
       resumenOtrosGastos.push({
@@ -383,7 +394,7 @@ export default function ConciliationResults({
         </div>
       </div>
 
-      {/* 4. NUEVO PANEL INFERIOR: TOTALES CONSOLIDADOS DE GASTOS BANCARIOS */}
+      {/* 4. PANEL INFERIOR: TOTALES CONSOLIDADOS */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -422,7 +433,7 @@ export default function ConciliationResults({
             </div>
           </div>
 
-          {/* Cards Restantes: Conceptos Individuales */}
+          {/* Cards Restantes: Conceptos Individuales (Separando la Cuota e IVA Cuota) */}
           {resumenOtrosGastos.map((item, idx) => (
             <div key={idx} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
               <div>
