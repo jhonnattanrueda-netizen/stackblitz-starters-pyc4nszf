@@ -1,7 +1,6 @@
 import * as XLSX from 'xlsx';
 import { BankTransaction, SiigoTransaction } from '../types/conciliacion';
 
-// Parser para Extracto o Preliminar Bancario
 export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -11,7 +10,6 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
 
   if (rawData.length === 0) return [];
 
-  // Detectar plantilla Preliminar sin encabezados
   const isPreliminar = rawData.some((row) => {
     return (
       row &&
@@ -55,7 +53,6 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
     return transactions;
   }
 
-  // Parser Estándar de Extractos
   let headerRowIndex = -1;
   for (let i = 0; i < rawData.length; i++) {
     const row = rawData[i];
@@ -106,7 +103,7 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
   return transactions;
 };
 
-// Parser Universal para Movimiento Auxiliar Siigo (Captura 100% de los registros de cualquier mes)
+// Parser Ultra-Permisivo para Movimiento Auxiliar Siigo
 export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -114,11 +111,10 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
   const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
   const items: SiigoTransaction[] = [];
 
-  // Localizar la fila del encabezado de columnas ("Código contable")
   let headerIndex = -1;
   for (let i = 0; i < rawData.length; i++) {
     const row = rawData[i];
-    if (row && String(row[0] || '').toLowerCase().includes('código contable')) {
+    if (row && row.some((c) => String(c || '').toLowerCase().includes('código contable') || String(c || '').toLowerCase().includes('comprobante'))) {
       headerIndex = i;
       break;
     }
@@ -127,19 +123,17 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
   const rowsToProcess = headerIndex !== -1 ? rawData.slice(headerIndex + 1) : rawData;
 
   rowsToProcess.forEach((row, idx) => {
-    if (!row || row.length < 14) return;
+    if (!row || row.length < 10) return;
 
-    // Convertir cualquier tipo (String, Number, Float) a texto limpio
     const codCuenta = String(row[0] ?? '').trim();
-    const codCuentaLower = codCuenta.toLowerCase();
+    const codLower = codCuenta.toLowerCase();
 
-    // Omitir filas de títulos, totales generales o fechas de procesamiento
     if (
       !codCuenta ||
-      codCuentaLower.includes('código contable') ||
-      codCuentaLower.includes('cuenta contable') ||
-      codCuentaLower.includes('total general') ||
-      codCuentaLower.includes('procesado en')
+      codLower.includes('código contable') ||
+      codLower.includes('cuenta contable') ||
+      codLower.includes('total general') ||
+      codLower.includes('procesado en')
     ) {
       return;
     }
@@ -149,9 +143,22 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
     const tercero = String(row[7] ?? '').trim();
     const descripcion = String(row[8] ?? '').trim();
 
-    // Parsear débitos y créditos numéricos independientemente del formato de la celda
-    const valDebito = parseFloat(String(row[12] ?? 0)) || 0;
-    const valCredito = parseFloat(String(row[13] ?? 0)) || 0;
+    // Intentar leer Débito/Crédito en columnas dinámicas (12/13 o 11/12)
+    let valDebito = 0;
+    let valCredito = 0;
+
+    for (let c = 10; c < row.length; c++) {
+      const numVal = parseFloat(String(row[c] ?? 0).replace(/\./g, '').replace(',', '.'));
+      if (!isNaN(numVal) && numVal > 0) {
+        if (c === 12) valDebito = numVal;
+        if (c === 13) valCredito = numVal;
+      }
+    }
+
+    if (valDebito === 0 && valCredito === 0) {
+      valDebito = parseFloat(String(row[12] ?? 0)) || 0;
+      valCredito = parseFloat(String(row[13] ?? 0)) || 0;
+    }
 
     if (valDebito > 0) {
       items.push({
