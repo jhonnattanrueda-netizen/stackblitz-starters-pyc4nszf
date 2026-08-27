@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { BankTransaction, SiigoTransaction } from '../types/conciliacion';
 
-// Parser para Extracto o Preliminar Bancario
+// 1. Parser para Extractos Bancarios o Preliminares
 export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -11,6 +11,7 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
 
   if (rawData.length === 0) return [];
 
+  // Detectar Preliminar sin encabezados
   const isPreliminar = rawData.some((row) => {
     return (
       row &&
@@ -54,6 +55,7 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
     return transactions;
   }
 
+  // Parser Estándar Bancolombia
   let headerRowIndex = -1;
   for (let i = 0; i < rawData.length; i++) {
     const row = rawData[i];
@@ -104,92 +106,51 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
   return transactions;
 };
 
-// Parser Dinámico Ultra-Robusto para Movimientos Auxiliares de Siigo
+// 2. Parser Estricto por Columnas A-P para Movimiento Auxiliar Siigo
 export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+  
+  // Extraer las filas incluyendo las celdas vacías para mantener la alineación de A a P (16 columnas)
+  const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
   const items: SiigoTransaction[] = [];
 
-  let headerIndex = -1;
-  let idxDebito = -1;
-  let idxCredito = -1;
-  let idxComprobante = 2;
-  let idxFecha = 4;
-  let idxTercero = 7;
+  rawData.forEach((row, idx) => {
+    // Verificar que la fila tenga contenido suficiente
+    if (!row || row.length < 14) return;
 
-  // 1. Identificar la fila de nombres de columna
-  for (let i = 0; i < rawData.length; i++) {
-    const row = rawData[i];
-    if (row && row.some((c) => String(c || '').toLowerCase().includes('código contable') || String(c || '').toLowerCase().includes('comprobante'))) {
-      headerIndex = i;
-      row.forEach((cellVal, colIdx) => {
-        const strVal = String(cellVal || '').toLowerCase();
-        if (strVal.includes('débito') || strVal.includes('debito')) idxDebito = colIdx;
-        if (strVal.includes('crédito') || strVal.includes('credito')) idxCredito = colIdx;
-        if (strVal.includes('comprobante')) idxComprobante = colIdx;
-        if (strVal.includes('fecha')) idxFecha = colIdx;
-        if (strVal.includes('tercero') || strVal.includes('nombre')) idxTercero = colIdx;
-      });
-      break;
-    }
-  }
+    // Columna A (Índice 0): Código contable
+    const colA = String(row[0] ?? '').trim();
+    const colALower = colA.toLowerCase();
 
-  const rowsToProcess = headerIndex !== -1 ? rawData.slice(headerIndex + 1) : rawData;
-
-  rowsToProcess.forEach((row, idx) => {
-    if (!row || row.length < 5) return;
-
-    const codCuenta = String(row[0] ?? '').trim();
-    const codLower = codCuenta.toLowerCase();
-
+    // Omitir encabezados superiores, resúmenes de cuenta o pies de página
     if (
-      !codCuenta ||
-      codLower.includes('código contable') ||
-      codLower.includes('cuenta contable') ||
-      codLower.includes('total general') ||
-      codLower.includes('procesado en')
+      !colA ||
+      colALower.includes('código contable') ||
+      colALower.includes('cuenta contable') ||
+      colALower.includes('movimiento auxiliar') ||
+      colALower.includes('autentic') ||
+      colALower.includes('de agosto') ||
+      colALower.includes('de julio') ||
+      colALower.includes('total general') ||
+      colALower.includes('procesado en')
     ) {
       return;
     }
 
-    const comprobante = String(row[idxComprobante] ?? row[2] ?? '').trim();
-    const fecha = String(row[idxFecha] ?? row[4] ?? '').trim();
-    const tercero = String(row[idxTercero] ?? row[7] ?? '').trim();
-    const descripcion = String(row[8] ?? '').trim();
+    // Mapeo directo y estricto según la estructura oficial de Siigo (A-P)
+    const comprobante = String(row[2] ?? '').trim();  // Columna C (Índice 2)
+    const fecha = String(row[4] ?? '').trim();        // Columna E (Índice 4)
+    const tercero = String(row[7] ?? '').trim();      // Columna H (Índice 7)
+    
+    // Descripción: Columna I (8) o Columna J (9)
+    const descripcion = String(row[8] ?? row[9] ?? '').trim();
 
-    let valDebito = 0;
-    let valCredito = 0;
-
-    // Si los índices dinámicos de las columnas Débito/Crédito fueron encontrados en la cabecera:
-    if (idxDebito !== -1 && row[idxDebito] !== undefined) {
-      valDebito = parseFloat(String(row[idxDebito]).replace(/\./g, '').replace(',', '.')) || Number(row[idxDebito]) || 0;
-    }
-    if (idxCredito !== -1 && row[idxCredito] !== undefined) {
-      valCredito = parseFloat(String(row[idxCredito]).replace(/\./g, '').replace(',', '.')) || Number(row[idxCredito]) || 0;
-    }
-
-    // Fallback: Si no se extrajeron por encabezado, escanear valores numéricos en la fila
-    if (valDebito === 0 && valCredito === 0) {
-      const numbersInRow: { col: number; val: number }[] = [];
-      row.forEach((cellVal, cIdx) => {
-        if (cIdx >= 5 && typeof cellVal === 'number' && cellVal > 0) {
-          numbersInRow.push({ col: cIdx, val: cellVal });
-        }
-      });
-
-      // Tomar el valor numérico correspondiente al movimiento
-      if (numbersInRow.length > 0) {
-        const lastNum = numbersInRow[0];
-        // Determinar por ubicación o estructura de columnas
-        if (lastNum.col === 11 || lastNum.col === 12) {
-          valDebito = lastNum.val;
-        } else if (lastNum.col === 13) {
-          valCredito = lastNum.val;
-        }
-      }
-    }
+    // Columna M (Índice 12): Débito
+    // Columna N (Índice 13): Crédito
+    const valDebito = parseFloat(String(row[12] ?? 0)) || 0;
+    const valCredito = parseFloat(String(row[13] ?? 0)) || 0;
 
     if (valDebito > 0) {
       items.push({
@@ -200,7 +161,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
         observaciones: descripcion,
         monto: valDebito,
         tipo: 'DEBITO',
-        cuentaCode: codCuenta,
+        cuentaCode: colA,
       });
     } else if (valCredito > 0) {
       items.push({
@@ -211,7 +172,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
         observaciones: descripcion,
         monto: valCredito,
         tipo: 'CREDITO',
-        cuentaCode: codCuenta,
+        cuentaCode: colA,
       });
     }
   });
