@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, ChangeEvent, DragEvent } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, RefreshCw, Layers, ArrowRightLeft } from 'lucide-react';
+import { Upload, FileSpreadsheet, AlertCircle, RefreshCw, Layers, ArrowRightLeft, Search } from 'lucide-react';
 import { parseBankExcel } from '../lib/excel';
 import { conciliarMovimientos } from '../lib/matcher';
 import { 
@@ -16,8 +16,12 @@ import ConsolidadorFinanciero from '../components/ConsolidadorFinanciero';
 export default function Home() {
   const [tabActiva, setTabActiva] = useState<'conciliacion' | 'consolidador'>('conciliacion');
 
+  // Estados de fecha bajo demanda
+  const [selectedMonth, setSelectedMonth] = useState<string>('07'); // Julio por defecto
+  const [selectedYear, setSelectedYear] = useState<string>('2026');  // 2026 por defecto
+
+  // Estados de datos
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
-  const [fileName, setFileName] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -26,26 +30,44 @@ export default function Home() {
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
   const [siigoDataRaw, setSiigoDataRaw] = useState<SiigoTransaction[]>([]);
 
-  const processFile = async (file: File) => {
+  // 1. Carga inicial del Excel del Extracto Bancario
+  const handleFileUpload = async (file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/)) {
       setError('Formato no válido. Sube un archivo .xlsx, .xls o .csv');
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setFileName(file.name);
-    setConciliationResults(null);
-
     try {
+      setError(null);
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
+    } catch (err: any) {
+      setError('Error al procesar el archivo Excel.');
+    }
+  };
 
-      // Consulta enviando el rango del mes a la API
-      const res = await fetch(`/api/siigo/journal-entries?startDate=2026-07-01&endDate=2026-07-31&t=${Date.now()}`, {
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error('Error de conexión con la API de Siigo.');
+  // 2. Función que ejecuta la llamada a Siigo ÚNICAMENTE bajo la orden explícita del usuario
+  const fetchSiigoDataOnDemand = async () => {
+    if (transactions.length === 0) {
+      setError('Por favor primero carga el archivo de extracto bancario.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    // Calcular el último día del mes seleccionado
+    const lastDay = new Date(parseInt(selectedYear, 10), parseInt(selectedMonth, 10), 0).getDate();
+    const startDate = `${selectedYear}-${selectedMonth}-01`;
+    const endDate = `${selectedYear}-${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+
+    try {
+      const res = await fetch(
+        `/api/siigo/journal-entries?startDate=${startDate}&endDate=${endDate}&t=${Date.now()}`,
+        { cache: 'no-store' }
+      );
+
+      if (!res.ok) throw new Error('Error al conectar con el servidor de Siigo.');
 
       const data = await res.json();
       const results = data.results || [];
@@ -60,8 +82,6 @@ export default function Home() {
           
           if (accountCode.startsWith('11')) {
             const movAttr = String(item.movement || item.type || '').trim();
-            
-            // Si la partida viene marcada como 'Credit' va a CREDITO, si es 'Debit' a DEBITO
             const esCredito = movAttr === 'Credit' || movAttr === 'credit' || movAttr === 'C';
             const montoVal = Math.abs(Number(item.value || item.debit || item.credit || 0));
 
@@ -81,11 +101,11 @@ export default function Home() {
 
       setSiigoDataRaw(extractedSiigoItems);
 
-      const { items, summary } = conciliarMovimientos(parsedBankData, extractedSiigoItems);
+      const { items, summary } = conciliarMovimientos(transactions, extractedSiigoItems);
       setConciliationResults(items);
       setConciliationSummary(summary);
     } catch (err: any) {
-      setError(err?.message || 'Error al procesar la información.');
+      setError(err?.message || 'Error al obtener registros de Siigo.');
     } finally {
       setLoading(false);
     }
@@ -93,19 +113,18 @@ export default function Home() {
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) processFile(file);
+    if (file) handleFileUpload(file);
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) processFile(file);
+    if (file) handleFileUpload(file);
   };
 
   const handleReset = () => {
     setTransactions([]);
-    setFileName(null);
     setConciliationResults(null);
     setConciliationSummary(null);
     setSiigoDataRaw([]);
@@ -153,18 +172,73 @@ export default function Home() {
       <main className="max-w-7xl mx-auto space-y-8">
         {tabActiva === 'conciliacion' ? (
           <>
-            {transactions.length > 0 && (
-              <div className="flex justify-end">
+            {/* Panel de Selección de Periodo y Carga en Vivo */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Mes a Conciliar:</label>
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="01">Enero</option>
+                    <option value="02">Febrero</option>
+                    <option value="03">Marzo</option>
+                    <option value="04">Abril</option>
+                    <option value="05">Mayo</option>
+                    <option value="06">Junio</option>
+                    <option value="07">Julio</option>
+                    <option value="08">Agosto</option>
+                    <option value="09">Septiembre</option>
+                    <option value="10">Octubre</option>
+                    <option value="11">Noviembre</option>
+                    <option value="12">Diciembre</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Año:</label>
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                    className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Botón Acción para disparar la consulta a Siigo */}
+              <div className="flex items-center gap-3">
+                {transactions.length > 0 && (
+                  <button
+                    onClick={handleReset}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl transition-all"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Limpiar Todo
+                  </button>
+                )}
+
                 <button
-                  onClick={handleReset}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition-all"
+                  onClick={fetchSiigoDataOnDemand}
+                  disabled={loading || transactions.length === 0}
+                  className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all ${
+                    loading || transactions.length === 0
+                      ? 'bg-slate-300 cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'
+                  }`}
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  Cargar otro extracto
+                  <Search className="w-4 h-4" />
+                  {loading ? 'Consultando Siigo...' : '🔍 Traer Registros de Siigo'}
                 </button>
               </div>
-            )}
+            </div>
 
+            {/* Carga del Extracto Bancario */}
             {transactions.length === 0 && (
               <div
                 onDrop={handleDrop}
@@ -182,9 +256,9 @@ export default function Home() {
                   <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-4 border border-indigo-100 shadow-inner">
                     <Upload className="w-8 h-8" />
                   </div>
-                  <span className="text-xl font-bold text-slate-800">Arrastra tu extracto bancario aquí</span>
+                  <span className="text-xl font-bold text-slate-800">1. Arrastra tu extracto bancario aquí</span>
                   <span className="text-sm text-slate-500 mt-2 max-w-sm">
-                    Soporta archivos de Excel (.xlsx, .xls) o CSV exportados desde cualquier entidad bancaria.
+                    Selecciona tu archivo Excel (.xlsx, .xls) de la entidad bancaria.
                   </span>
                   <span className="mt-6 inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-md transition-all">
                     <FileSpreadsheet className="w-4 h-4" /> Seleccionar Archivo
@@ -193,13 +267,15 @@ export default function Home() {
               </div>
             )}
 
+            {/* Spinner de Carga */}
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Consultando los datos de Siigo para el periodo seleccionado...</span>
+                <span className="font-semibold text-sm">Consultando los registros del periodo en Siigo Nube...</span>
               </div>
             )}
 
+            {/* Mensajes de Error */}
             {error && (
               <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -207,6 +283,7 @@ export default function Home() {
               </div>
             )}
 
+            {/* Muestra los Resultados ÚNICAMENTE cuando el usuario haya presionado el botón */}
             {conciliationResults && conciliationSummary && (
               <ConciliationResults 
                 results={conciliationResults} 

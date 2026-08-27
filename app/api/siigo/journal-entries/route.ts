@@ -6,9 +6,15 @@ export const revalidate = 0;
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   
-  // Rango de fechas dinámico (Por defecto Julio 2026)
-  const startDate = searchParams.get('startDate') || '2026-07-01';
-  const endDate = searchParams.get('endDate') || '2026-07-31';
+  const startDate = searchParams.get('startDate');
+  const endDate = searchParams.get('endDate');
+
+  if (!startDate || !endDate) {
+    return NextResponse.json(
+      { error: 'Debe seleccionar un rango de fechas válido.' },
+      { status: 400 }
+    );
+  }
 
   const username = process.env.SIIGO_USERNAME;
   const accessKey = process.env.SIIGO_ACCESS_KEY;
@@ -22,7 +28,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Autenticación en Siigo
+    // Autenticación con Siigo
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -40,7 +46,7 @@ export async function GET(request: Request) {
     let currentPage = 1;
     let totalPages = 1;
 
-    // 2. Consulta segmentada por el periodo seleccionado
+    // Traer únicamente el rango exacto ordenado por fecha de creación o documento
     do {
       const entriesRes = await fetch(
         `${baseUrl}/v1/journals?created_start=${startDate}&created_end=${endDate}&page=${currentPage}&page_size=100`,
@@ -65,7 +71,7 @@ export async function GET(request: Request) {
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 20);
+    } while (currentPage <= totalPages && currentPage <= 25);
 
     return NextResponse.json(
       { pagination: { total_results: allJournals.length }, results: allJournals },
@@ -73,7 +79,7 @@ export async function GET(request: Request) {
     );
   } catch (error: any) {
     return NextResponse.json(
-      { error: 'Error del servidor al consultar Siigo', mensaje: error?.message || String(error) },
+      { error: 'Error al consultar Siigo', mensaje: error?.message || String(error) },
       { status: 500 }
     );
   }
