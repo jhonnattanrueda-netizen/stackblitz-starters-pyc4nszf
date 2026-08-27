@@ -38,10 +38,14 @@ export default function Home() {
     setConciliationResults(null);
 
     try {
+      // 1. Extraer extracto bancario
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      const res = await fetch('/api/siigo/journal-entries');
+      // 2. Consulta a Siigo rompiendo caché con timestamp
+      const res = await fetch(`/api/siigo/journal-entries?t=${Date.now()}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error('No se pudo establecer la conexión con la API de Siigo.');
 
       const data = await res.json();
@@ -49,37 +53,38 @@ export default function Home() {
 
       const extractedSiigoItems: SiigoTransaction[] = [];
 
+      // 3. Mapeo estricto de naturaleza contable para cuentas del grupo 11
       results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
 
         items.forEach((item: any, itemIdx: number) => {
           const accountCode = String(item.account?.code || '').trim();
           
-          // Capturar todas las cuentas del grupo 11 (1105 a 1145)
           if (accountCode.startsWith('11')) {
-            const valDebit = Number(item.debit || 0);
-            const valCredit = Number(item.credit || 0);
-            const movType = String(item.movement || item.type || '').toLowerCase();
+            // Lectura de la partida contable puntual
+            const valorDebit = Number(item.debit || 0);
+            const valorCredit = Number(item.credit || 0);
+            const movAttr = String(item.movement || item.type || '').toLowerCase();
 
-            let isDebit = false;
-            let montoReal = 0;
+            let esDebito = false;
+            let montoAbsoluto = 0;
 
-            if (valDebit > 0) {
-              isDebit = true;
-              montoReal = valDebit;
-            } else if (valCredit > 0) {
-              isDebit = false;
-              montoReal = valCredit;
-            } else if (movType === 'debit' || movType === 'd') {
-              isDebit = true;
-              montoReal = Math.abs(Number(item.value || 0));
-            } else if (movType === 'credit' || movType === 'c') {
-              isDebit = false;
-              montoReal = Math.abs(Number(item.value || 0));
+            if (valorDebit > 0) {
+              esDebito = true;
+              montoAbsoluto = valorDebit;
+            } else if (valorCredit > 0) {
+              esDebito = false;
+              montoAbsoluto = valorCredit;
+            } else if (movAttr === 'debit' || movAttr === 'd') {
+              esDebito = true;
+              montoAbsoluto = Math.abs(Number(item.value || 0));
+            } else if (movAttr === 'credit' || movAttr === 'c') {
+              esDebito = false;
+              montoAbsoluto = Math.abs(Number(item.value || 0));
             } else {
               const numVal = Number(item.value || 0);
-              isDebit = numVal >= 0;
-              montoReal = Math.abs(numVal);
+              esDebito = numVal > 0;
+              montoAbsoluto = Math.abs(numVal);
             }
 
             extractedSiigoItems.push({
@@ -88,8 +93,8 @@ export default function Home() {
               comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
-              monto: montoReal,
-              tipo: isDebit ? 'DEBITO' : 'CREDITO',
+              monto: montoAbsoluto,
+              tipo: esDebito ? 'DEBITO' : 'CREDITO',
               cuentaCode: accountCode,
             });
           }
@@ -213,7 +218,7 @@ export default function Home() {
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Procesando la totalidad de registros en Siigo Nube...</span>
+                <span className="font-semibold text-sm">Consultando y clasificando comprobantes de Siigo Nube...</span>
               </div>
             )}
 
