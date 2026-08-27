@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { ConciliationItem, ConciliationSummary, BankTransaction, SiigoTransaction } from '../types/conciliacion';
-import { Search, Check, RefreshCw, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Search, Check, RefreshCw } from 'lucide-react';
 
 interface Props {
   results: ConciliationItem[];
@@ -131,7 +131,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
 
   return (
     <div className="space-y-6">
-      {/* Barra de Filtros */}
+      {/* Controles de Filtros */}
       <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
         <button
           onClick={handleClearFilters}
@@ -179,33 +179,6 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Métricas */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Conciliados Manuales</span>
-          <p className="text-3xl font-extrabold text-emerald-600 mt-2">{conciliatedCount}</p>
-          <span className="text-xs text-slate-500 mt-1 block">Movimientos cruzados</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Revisión Parcial</span>
-          <p className="text-3xl font-extrabold text-amber-500 mt-2">0</p>
-          <span className="text-xs text-slate-500 mt-1 block">Sin autoconciliación</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Pendientes en Banco</span>
-          <p className="text-3xl font-extrabold text-rose-500 mt-2">{pendingBank.length}</p>
-          <span className="text-xs text-slate-500 mt-1 block">En el rango del comprobante</span>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">Pendientes en Siigo</span>
-          <p className="text-3xl font-extrabold text-indigo-600 mt-2">{pendingSiigo.length}</p>
-          <span className="text-xs text-slate-500 mt-1 block">En el rango del comprobante</span>
-        </div>
-      </div>
-
       {/* Buscadores */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="relative">
@@ -231,106 +204,107 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Listas Principales en 2 Columnas */}
+      {/* Tablas Principales en 2 Columnas (Fecha - Concepto - Débito - Crédito) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Columna Izquierda: Banco */}
-        <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
-          <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide">
+        {/* Tabla Extracto Bancario */}
+        <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[520px] overflow-hidden">
+          <div className="bg-indigo-600 text-white px-5 py-3 font-bold text-sm tracking-wide">
             Información Extracto ({filteredBankView.length})
           </div>
-          <div className="p-4 flex-1 overflow-y-auto space-y-2 divide-y divide-slate-100">
-            {filteredBankView.map((item) => {
-              const isSelected = selectedBankId === item.id;
-              const isDebito = item.tipo === 'DEBITO';
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 border-b border-slate-200">
+                <tr>
+                  <th className="p-3 w-20">Fecha</th>
+                  <th className="p-3">Concepto</th>
+                  <th className="p-3 text-right text-emerald-700 w-24">Débito</th>
+                  <th className="p-3 text-right text-rose-700 w-24">Crédito</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {filteredBankView.map((item) => {
+                  const isSelected = selectedBankId === item.id;
+                  const isDebito = item.tipo === 'DEBITO';
 
-              return (
-                <div
-                  key={item.id}
-                  onClick={() => setSelectedBankId(isSelected ? null : item.id)}
-                  className={`p-3.5 rounded-xl cursor-pointer transition-all border flex items-center justify-between ${
-                    isSelected ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 shadow-sm' : 'border-slate-100 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-xs text-slate-800">{item.descripcion}</p>
-                      {/* Insignia DÉBITO / CRÉDITO */}
-                      <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        isDebito ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                      }`}>
-                        {isDebito ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                        {item.tipo || 'MOV'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                      <span>{item.fecha}</span>
-                      <span>•</span>
-                      <span>Ref: {item.referencia}</span>
-                    </div>
-                  </div>
-                  <span className={`font-extrabold text-sm ${isDebito ? 'text-emerald-600' : 'text-slate-900'}`}>
-                    ${item.monto.toLocaleString('es-CO')}
-                  </span>
-                </div>
-              );
-            })}
+                  return (
+                    <tr
+                      key={item.id}
+                      onClick={() => setSelectedBankId(isSelected ? null : item.id)}
+                      className={`cursor-pointer transition-all ${
+                        isSelected ? 'bg-indigo-50 border-indigo-500 font-semibold' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <td className="p-3 font-mono text-slate-500">{item.fecha}</td>
+                      <td className="p-3">
+                        <p className="font-semibold text-slate-800 line-clamp-1">{item.descripcion}</p>
+                        <span className="text-[10px] text-slate-400">Ref: {item.referencia}</span>
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                        {isDebito ? `$${item.monto.toLocaleString('es-CO')}` : '-'}
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-rose-600">
+                        {!isDebito ? `$${item.monto.toLocaleString('es-CO')}` : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        {/* Columna Derecha: Siigo */}
-        <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[500px]">
-          <div className="bg-indigo-600 text-white px-5 py-3.5 rounded-t-xl font-bold text-sm tracking-wide flex justify-between items-center">
+        {/* Tabla Movimientos Siigo */}
+        <div className="bg-white border-2 border-indigo-200 rounded-2xl shadow-sm flex flex-col h-[520px] overflow-hidden">
+          <div className="bg-indigo-600 text-white px-5 py-3 font-bold text-sm tracking-wide flex justify-between items-center">
             <span>Información Movimientos Siigo ({filteredSiigoView.length})</span>
-            <span className="text-xs bg-indigo-500 text-white px-2.5 py-1 rounded-md font-mono">
+            <span className="text-xs bg-indigo-500 text-white px-2 py-0.5 rounded font-mono">
               {selectedAccountCode === 'ALL' ? 'Grupo 1105-1145' : `Cta: ${selectedAccountCode}`}
             </span>
           </div>
-          <div className="p-4 flex-1 overflow-y-auto space-y-2 divide-y divide-slate-100">
-            {filteredSiigoView.map((item) => {
-              const isSelected = selectedSiigoId === item.id;
-              const isDebito = item.tipo === 'DEBITO';
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 border-b border-slate-200">
+                <tr>
+                  <th className="p-3 w-20">Fecha</th>
+                  <th className="p-3">Concepto</th>
+                  <th className="p-3 text-right text-emerald-700 w-24">Débito</th>
+                  <th className="p-3 text-right text-rose-700 w-24">Crédito</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {filteredSiigoView.map((item) => {
+                  const isSelected = selectedSiigoId === item.id;
+                  const isDebito = item.tipo === 'DEBITO';
 
-              return (
-                <div
-                  key={item.id}
-                  onClick={() => setSelectedSiigoId(isSelected ? null : item.id)}
-                  className={`p-3.5 rounded-xl cursor-pointer transition-all border flex items-center justify-between ${
-                    isSelected ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 shadow-sm' : 'border-slate-100 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-xs text-slate-800">{item.comprobante} - {item.tercero}</p>
-                      {/* Insignia DÉBITO / CRÉDITO */}
-                      <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        isDebito ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                      }`}>
-                        {isDebito ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                        {item.tipo}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 line-clamp-1">{item.observaciones}</p>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                      <span>Fecha: {item.fecha}</span>
-                      {item.cuentaCode && (
-                        <>
-                          <span>•</span>
-                          <span className="text-indigo-600 font-semibold">Cta: {item.cuentaCode}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <span className={`font-extrabold text-sm ${isDebito ? 'text-emerald-600' : 'text-slate-900'}`}>
-                    ${item.monto.toLocaleString('es-CO')}
-                  </span>
-                </div>
-              );
-            })}
+                  return (
+                    <tr
+                      key={item.id}
+                      onClick={() => setSelectedSiigoId(isSelected ? null : item.id)}
+                      className={`cursor-pointer transition-all ${
+                        isSelected ? 'bg-indigo-50 border-indigo-500 font-semibold' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <td className="p-3 font-mono text-slate-500">{item.fecha}</td>
+                      <td className="p-3">
+                        <p className="font-semibold text-slate-800 line-clamp-1">{item.comprobante} - {item.tercero}</p>
+                        <p className="text-[10px] text-slate-400 line-clamp-1">{item.observaciones}</p>
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                        {isDebito ? `$${item.monto.toLocaleString('es-CO')}` : '-'}
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-rose-600">
+                        {!isDebito ? `$${item.monto.toLocaleString('es-CO')}` : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
 
-      {/* Footer de Saldos */}
+      {/* Footer Saldos y Diferencia */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center pt-2">
         <div className="bg-indigo-600 text-white p-4 rounded-xl shadow-sm text-center">
           <span className="text-xs font-semibold uppercase opacity-80 block">Saldo Final Extracto</span>
@@ -350,7 +324,7 @@ export default function ConciliationResults({ siigoDataRaw, bankTransactions }: 
         </div>
       </div>
 
-      {/* Botón Acción Principal */}
+      {/* Botón Accionar Conciliación */}
       <div className="flex justify-center pt-2">
         <button
           onClick={handleConciliate}

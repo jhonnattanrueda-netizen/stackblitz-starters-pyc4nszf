@@ -14,10 +14,10 @@ import ConciliationResults from '../components/ConciliationResults';
 import ConsolidadorFinanciero from '../components/ConsolidadorFinanciero';
 
 export default function Home() {
-  // Estado para controlar la pestaña activa
+  // Estado para controlar la pestaña activa (Conciliación Bancaria vs Consolidador Financiero)
   const [tabActiva, setTabActiva] = useState<'conciliacion' | 'consolidador'>('conciliacion');
 
-  // Estados de la Conciliación Bancaria
+  // Estados para la Conciliación Bancaria
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [fileName, setFileName] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -28,7 +28,7 @@ export default function Home() {
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
   const [siigoDataRaw, setSiigoDataRaw] = useState<SiigoTransaction[]>([]);
 
-  // Lógica de procesamiento de archivo para la conciliación
+  // Lógica de procesamiento e ingesta de información para Conciliación
   const processFile = async (file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/)) {
       setError('Formato no válido. Sube un archivo .xlsx, .xls o .csv');
@@ -53,7 +53,7 @@ export default function Home() {
 
       const extractedSiigoItems: SiigoTransaction[] = [];
 
-      // Desglose de partidas contables (cuentas del grupo 11: 1105 - 1145)
+      // Extracción y mapeo de naturaleza contable (Débito/Crédito)
       results.forEach((entry: any, entryIdx: number) => {
         const items = entry.items || [];
 
@@ -61,6 +61,8 @@ export default function Home() {
           const accountCode = String(item.account?.code || '').trim();
           
           if (accountCode.startsWith('11')) {
+            const isCredit = item.movement === 'Credit';
+
             extractedSiigoItems.push({
               id: `${entry.id || entryIdx}-${itemIdx}-${item.account?.id || itemIdx}`,
               fecha: entry.date || '',
@@ -68,7 +70,7 @@ export default function Home() {
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
               monto: Math.abs(Number(item.value || 0)),
-              tipo: item.movement === 'Credit' ? 'CREDITO' : 'DEBITO',
+              tipo: isCredit ? 'CREDITO' : 'DEBITO', // Preserva la naturaleza exacta devuelta por Siigo
               cuentaCode: accountCode,
             });
           }
@@ -122,7 +124,7 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Botones de Navegación (Tabs) */}
+        {/* Pestañas de Navegación */}
         <div className="flex bg-slate-200 p-1.5 rounded-2xl gap-1">
           <button
             onClick={() => setTabActiva('conciliacion')}
@@ -148,7 +150,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Contenido Dinámico por Pestaña */}
+      {/* Contenido Dinámico según la Pestaña Activa */}
       <main className="max-w-7xl mx-auto space-y-8">
         {tabActiva === 'conciliacion' ? (
           <>
@@ -165,7 +167,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Zona Dropzone para Carga de Extracto */}
+            {/* Carga de Archivo Extracto (Dropzone) */}
             {transactions.length === 0 && (
               <div
                 onDrop={handleDrop}
@@ -202,7 +204,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Banner de Error */}
+            {/* Mensaje de Error */}
             {error && (
               <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -210,7 +212,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Resultados y Tablas de Conciliación */}
+            {/* Tablas de Resultados de Conciliación */}
             {conciliationResults && conciliationSummary && (
               <ConciliationResults 
                 results={conciliationResults} 
@@ -221,7 +223,7 @@ export default function Home() {
             )}
           </>
         ) : (
-          /* Pestaña del Consolidador Financiero */
+          /* Render de la vista del Consolidador */
           <ConsolidadorFinanciero />
         )}
       </main>
