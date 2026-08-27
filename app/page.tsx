@@ -25,7 +25,7 @@ export default function Home() {
   const [conciliationResults, setConciliationResults] = useState<ConciliationItem[] | null>(null);
   const [conciliationSummary, setConciliationSummary] = useState<ConciliationSummary | null>(null);
 
-  // Carga e ingesta del Extracto Bancario
+  // Carga del Extracto o Preliminar Bancario (Local)
   const handleBankFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -33,7 +33,6 @@ export default function Home() {
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // Si ya hay datos de Siigo, actualiza o prepara la conciliación
       if (siigoDataRaw.length > 0) {
         const { items, summary } = conciliarMovimientos(parsedBankData, siigoDataRaw);
         setConciliationResults(items);
@@ -44,7 +43,7 @@ export default function Home() {
     }
   };
 
-  // Carga e ingesta del Auxiliar Contable de Siigo (Captura los 98/113 movimientos sin restricciones)
+  // Carga del Auxiliar Contable en Excel (Local puro, sin peticiones a Siigo)
   const handleSiigoAuxiliarUpload = async (file: File) => {
     try {
       setError(null);
@@ -52,21 +51,20 @@ export default function Home() {
       const parsedSiigoData = await parseSiigoAuxiliarExcel(file);
       setSiigoDataRaw(parsedSiigoData);
 
-      // Si ya hay extracto bancario, actualiza o prepara la conciliación
       if (transactions.length > 0) {
         const { items, summary } = conciliarMovimientos(transactions, parsedSiigoData);
         setConciliationResults(items);
         setConciliationSummary(summary);
       }
     } catch (err) {
-      setError('Error al procesar el archivo de Auxiliar Contable de Siigo.');
+      setError('Error al procesar el archivo de Movimiento Auxiliar en Excel.');
     }
   };
 
-  // Disparador del cruce manual
+  // Autoconciliación manual
   const ejecutarAutoConciliacion = () => {
     if (transactions.length === 0 || siigoDataRaw.length === 0) {
-      setError('Carga el Extracto Bancario y el Auxiliar de Siigo para autoconciliar.');
+      setError('Carga tanto el Extracto Bancario como el Auxiliar Contable en Excel para autoconciliar.');
       return;
     }
 
@@ -86,21 +84,21 @@ export default function Home() {
     setError(null);
   };
 
-  // Generación de estado fallback para mostrar tablas aunque aún no se haya presionado autoconciliar
+  // Fallback visual para mostrar las tablas desde que se carga cualquier archivo
   const displayResults: ConciliationItem[] = conciliationResults || [
     ...transactions.map((b) => ({
       id: b.id,
       bankTransaction: b,
       estado: 'PENDIENTE_BANCO' as const,
       diferencia: b.monto,
-      motivo: 'Pendiente de autoconciliación',
+      motivo: 'Movimiento en banco pendiente por cruzar',
     })),
     ...siigoDataRaw.map((s) => ({
       id: s.id,
       siigoTransaction: s,
       estado: 'PENDIENTE_SIIGO' as const,
       diferencia: s.monto,
-      motivo: 'Pendiente de autoconciliación',
+      motivo: 'Movimiento contable pendiente por cruzar',
     })),
   ];
 
@@ -154,7 +152,7 @@ export default function Home() {
       <main className="max-w-7xl mx-auto space-y-8">
         {tabActiva === 'conciliacion' ? (
           <>
-            {/* Tarjetas de Carga */}
+            {/* Carga de Archivos Locales */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
                 <div>
@@ -178,24 +176,24 @@ export default function Home() {
                   <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-emerald-100">
                     <FileCheck className="w-7 h-7" />
                   </div>
-                  <h3 className="font-bold text-slate-800 text-sm">2. Auxiliar por Cuenta Siigo (Excel)</h3>
+                  <h3 className="font-bold text-slate-800 text-sm">2. Auxiliar por Cuenta (Excel)</h3>
                   <p className="text-xs text-slate-500 mt-1 mb-4">
-                    {siigoFileName ? `✓ ${siigoFileName} (${siigoDataRaw.length} movimientos)` : 'Sube el reporte Auxiliar por Cuenta de Siigo.'}
+                    {siigoFileName ? `✓ ${siigoFileName} (${siigoDataRaw.length} movimientos)` : 'Sube el archivo Excel de Movimiento Auxiliar.'}
                   </p>
                 </div>
                 <label className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-2.5 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2">
                   <FileSpreadsheet className="w-4 h-4" />
-                  {siigoFileName ? 'Cambiar Auxiliar Siigo' : 'Cargar Auxiliar Siigo'}
+                  {siigoFileName ? 'Cambiar Auxiliar' : 'Cargar Auxiliar Excel'}
                   <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleSiigoAuxiliarUpload(e.target.files[0])} />
                 </label>
               </div>
             </div>
 
-            {/* Barra de Control */}
+            {/* Barra de Control y Acciones */}
             {(transactions.length > 0 || siigoDataRaw.length > 0) && (
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-4">
                 <div className="text-xs font-medium text-slate-600">
-                  Estado: <span className="font-bold text-slate-800">{transactions.length}</span> registros de Banco y <span className="font-bold text-slate-800">{siigoDataRaw.length}</span> de Siigo cargados.
+                  Registros cargados: <span className="font-bold text-slate-800">{transactions.length}</span> del Banco y <span className="font-bold text-slate-800">{siigoDataRaw.length}</span> del Auxiliar Contable.
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -203,7 +201,7 @@ export default function Home() {
                     onClick={handleReset}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl transition-all"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" /> Limpiar
+                    <RefreshCw className="w-3.5 h-3.5" /> Limpiar Todo
                   </button>
 
                   <button
@@ -221,7 +219,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Errores */}
+            {/* Mensaje de Error */}
             {error && (
               <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -229,7 +227,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Visualización Permanente de las Tablas e Información */}
+            {/* Tablas de Información y Cruce siempre activas */}
             {(transactions.length > 0 || siigoDataRaw.length > 0) && (
               <ConciliationResults 
                 results={displayResults} 

@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { BankTransaction, SiigoTransaction } from '../types/conciliacion';
 
-// Parser Dinámico para Extractos Bancarios y Preliminares
+// Parser para Extracto o Preliminar Bancario (Banco)
 export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -11,7 +11,7 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
 
   if (rawData.length === 0) return [];
 
-  // Detectar Preliminar sin encabezados
+  // Detectar si es una plantilla Preliminar sin encabezados
   const isPreliminar = rawData.some((row) => {
     return (
       row &&
@@ -106,7 +106,7 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
   return transactions;
 };
 
-// Parser Universal para Auxiliar por Cuenta Contable Siigo (Sin restricciones de tipo o fecha)
+// Parser para Movimiento Auxiliar en Excel (Lectura local pura)
 export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -114,7 +114,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
   const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
   const items: SiigoTransaction[] = [];
 
-  // Buscar dinámicamente el encabezado
+  // Buscar dinámicamente la fila del encabezado ("Código contable")
   let headerIndex = -1;
   for (let i = 0; i < rawData.length; i++) {
     const row = rawData[i];
@@ -131,7 +131,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
 
     const codCuenta = String(row[0] || '').trim();
     
-    // Ignorar filas de encabezados o resumen general
+    // Ignorar encabezados o totales
     if (
       !codCuenta || 
       codCuenta.toLowerCase().includes('código contable') || 
@@ -147,6 +147,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
     const tercero = String(row[7] || '').trim();
     const descripcion = String(row[8] || '').trim();
     
+    // Extraer Débito (Columna 12) y Crédito (Columna 13)
     const valDebito = parseFloat(String(row[12] || 0)) || 0;
     const valCredito = parseFloat(String(row[13] || 0)) || 0;
 
