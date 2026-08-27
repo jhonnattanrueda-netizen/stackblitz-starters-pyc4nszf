@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ConciliationItem, ConciliationSummary, BankTransaction, SiigoTransaction } from '../types/conciliacion';
-import { CheckCircle2, AlertCircle, Clock, Check, Building2, Search, Wallet } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Clock, Check, Building2, Search, Calculator } from 'lucide-react';
 
 interface ConciliationResultsProps {
   results: ConciliationItem[];
@@ -11,27 +11,38 @@ interface ConciliationResultsProps {
   bankTransactions: BankTransaction[];
 }
 
-// Lista oficial de palabras clave / conceptos de Gastos Bancarios
-const CONCEPTOS_GASTOS_BANCARIOS = [
-  'ABONO INTERESES AHORROS',
-  'C MANEJO TARJ DEB',
-  'COBRO IVA PAGOS AUTOMATICOS',
-  'COMIS SWIFT GIRO VTA MDA EXT',
+const CONCEPTOS_COMISIONES = [
   'COMIS TRASLADO EN SUCURSAL',
-  'CUOTA MANEJO CUPO ROTATIVO',
-  'CUOTA PLAN CANAL NEGOCIOS',
-  'CXC IMPTO GOBIERNO 4X1000 MON',
-  'IMPTO GOBIERNO 4X1000',
-  'IVA CUOTA MANEJO CUPO ROTATIVO',
-  'IVA CUOTA PLAN CANAL NEGOCIOS',
-  'RETENCION EN LA FUENTE',
   'SERVICIO PAGO A OTROS BANCOS',
   'SERVICIO PAGO A PROVEEDORES',
   'SERVICIO PAGO DE NOMINA',
   'SERVICIO POR PAGOS A NEQUI',
+];
+
+const CONCEPTOS_GMF = [
+  'CXC IMPTO GOBIERNO 4X1000 MON',
+  'IMPTO GOBIERNO 4X1000',
+];
+
+const OTROS_GASTOS_INDIVIDUALES = [
+  'ABONO INTERESES AHORROS',
+  'C MANEJO TARJ DEB',
+  'COBRO IVA PAGOS AUTOMATICOS',
+  'COMIS SWIFT GIRO VTA MDA EXT',
+  'CUOTA MANEJO CUPO ROTATIVO',
+  'CUOTA PLAN CANAL NEGOCIOS',
+  'IVA CUOTA MANEJO CUPO ROTATIVO',
+  'IVA CUOTA PLAN CANAL NEGOCIOS',
+  'RETENCION EN LA FUENTE',
   'VALOR IVA',
   'DEBITO POR RECHAZOS PAGOS',
   'REV DEBITO POR RECHAZOS PAGOS',
+];
+
+const ALL_GASTOS_PATTERNS = [
+  ...CONCEPTOS_COMISIONES,
+  ...CONCEPTOS_GMF,
+  ...OTROS_GASTOS_INDIVIDUALES,
 ];
 
 export default function ConciliationResults({
@@ -40,39 +51,65 @@ export default function ConciliationResults({
   siigoDataRaw,
   bankTransactions,
 }: ConciliationResultsProps) {
-  // Estados de vista: 'TODOS' | 'CONCILIADOS' | 'PENDIENTES_OPERATIVOS' | 'PENDIENTES_GASTOS' | 'PENDIENTES_SIIGO'
   const [filtroVista, setFiltroVista] = useState<
     'TODOS' | 'CONCILIADOS' | 'PENDIENTES_OPERATIVOS' | 'PENDIENTES_GASTOS' | 'PENDIENTES_SIIGO'
   >('TODOS');
   
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Comprobar si un movimiento del banco es Gasto Bancario
   const esGastoBancario = (descripcion: string) => {
     const descUpper = descripcion.toUpperCase().trim();
-    return CONCEPTOS_GASTOS_BANCARIOS.some((concepto) => descUpper.includes(concepto));
+    return ALL_GASTOS_PATTERNS.some((concepto) => descUpper.includes(concepto));
   };
 
-  // 1. Movimientos Conciliados 1:1 o por Suma
   const concilidados = results.filter((r) => r.estado === 'CONCILIADO');
 
-  // 2. Todos los pendientes del banco (No conciliados)
   const pendientesBancoTotal = bankTransactions.filter(
     (b) => !results.some((r) => r.estado === 'CONCILIADO' && r.bankTransaction?.id === b.id)
   );
 
-  // 3. Subdivisión 1: Pendientes Operativos (No son gastos)
   const pendientesOperativosBanco = pendientesBancoTotal.filter((b) => !esGastoBancario(b.descripcion));
-
-  // 4. Subdivisión 2: Pendientes Gastos Bancarios (4x1000, comisiones, cuotas)
   const pendientesGastosBanco = pendientesBancoTotal.filter((b) => esGastoBancario(b.descripcion));
 
-  // 5. Pendientes en Siigo (Asientos contables no reflejados en banco)
   const pendientesSiigo = siigoDataRaw.filter(
     (s) => !results.some((r) => r.estado === 'CONCILIADO' && r.siigoTransaction?.id === s.id)
   );
 
   const totalMontoGastos = pendientesGastosBanco.reduce((acc, b) => acc + b.monto, 0);
+
+  // --------------------------------------------------------------------------
+  // CÁLCULO DE RESUMEN DE TOTALES PARA LA SECCIÓN INFERIOR
+  // --------------------------------------------------------------------------
+  const gastosParaTotales = bankTransactions.filter((b) => esGastoBancario(b.descripcion));
+
+  // 1. Agrupado: Comisiones Bancarias
+  const txComisiones = gastosParaTotales.filter((b) =>
+    CONCEPTOS_COMISIONES.some((c) => b.descripcion.toUpperCase().includes(c))
+  );
+  const totalComisiones = txComisiones.reduce((acc, b) => acc + b.monto, 0);
+
+  // 2. Agrupado: GMF 4x1000
+  const txGMF = gastosParaTotales.filter((b) =>
+    CONCEPTOS_GMF.some((c) => b.descripcion.toUpperCase().includes(c))
+  );
+  const totalGMF = txGMF.reduce((acc, b) => acc + b.monto, 0);
+
+  // 3. Desglose Individual del resto de conceptos
+  const resumenOtrosGastos: { concepto: string; total: number; cantidad: number }[] = [];
+
+  OTROS_GASTOS_INDIVIDUALES.forEach((concepto) => {
+    const coincidencia = gastosParaTotales.filter((b) =>
+      b.descripcion.toUpperCase().includes(concepto)
+    );
+    if (coincidencia.length > 0) {
+      const suma = coincidencia.reduce((acc, b) => acc + b.monto, 0);
+      resumenOtrosGastos.push({
+        concepto,
+        total: suma,
+        cantidad: coincidencia.length,
+      });
+    }
+  });
 
   const formatCOP = (val: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -91,7 +128,7 @@ export default function ConciliationResults({
           <div className="text-xl font-black text-emerald-600 mt-1 flex items-center gap-1.5">
             <CheckCircle2 className="w-5 h-5" /> {concilidados.length}
           </div>
-          <span className="text-[10px] text-slate-400 mt-0.5 block">Cruces 1:1 y sumas verificadas</span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">Cruces verificados</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-rose-100 bg-rose-50/20 shadow-sm">
@@ -127,7 +164,7 @@ export default function ConciliationResults({
         </div>
       </div>
 
-      {/* 2. Barra de Filtros con la nueva división de Pendientes */}
+      {/* 2. Barra de Filtros */}
       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-3">
         <div className="flex bg-slate-100 p-1 rounded-xl gap-1 text-xs font-bold overflow-x-auto">
           <button
@@ -148,7 +185,6 @@ export default function ConciliationResults({
             ✓ Conciliados ({concilidados.length})
           </button>
 
-          {/* DIVISIÓN 1: Pendientes Operativos Banco */}
           <button
             onClick={() => setFiltroVista('PENDIENTES_OPERATIVOS')}
             className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 ${
@@ -158,7 +194,6 @@ export default function ConciliationResults({
             ⚠️ Pendientes Banco ({pendientesOperativosBanco.length})
           </button>
 
-          {/* DIVISIÓN 2: Pendientes Gastos Bancarios */}
           <button
             onClick={() => setFiltroVista('PENDIENTES_GASTOS')}
             className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 ${
@@ -178,7 +213,6 @@ export default function ConciliationResults({
           </button>
         </div>
 
-        {/* Buscador de texto */}
         <div className="relative w-full sm:w-64">
           <input
             type="text"
@@ -191,7 +225,7 @@ export default function ConciliationResults({
         </div>
       </div>
 
-      {/* 3. Tablas Desglosadas según Pestaña */}
+      {/* 3. Tablas Desglosadas principales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Tabla Extracto / Preliminar Bancario */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -207,7 +241,7 @@ export default function ConciliationResults({
             </span>
           </div>
 
-          <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100">
+          <div className="max-h-[450px] overflow-y-auto divide-y divide-slate-100">
             {(filtroVista === 'PENDIENTES_SIIGO'
               ? []
               : filtroVista === 'PENDIENTES_GASTOS'
@@ -282,13 +316,13 @@ export default function ConciliationResults({
             </span>
           </div>
 
-          <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100">
+          <div className="max-h-[450px] overflow-y-auto divide-y divide-slate-100">
             {filtroVista === 'PENDIENTES_GASTOS' ? (
               <div className="p-12 text-center text-slate-400">
                 <Building2 className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                 <p className="text-xs font-bold text-slate-600">Pestaña exclusiva de Gastos del Extracto</p>
                 <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
-                  Aquí se agrupan las comisiones, 4x1000 e intereses no contabilizados para su asiento en Siigo.
+                  Abajo verás el desglose de totales por cada concepto de comisiones y GMF.
                 </p>
               </div>
             ) : (
@@ -346,6 +380,60 @@ export default function ConciliationResults({
                 })
             )}
           </div>
+        </div>
+      </div>
+
+      {/* 4. NUEVO PANEL INFERIOR: TOTALES CONSOLIDADOS DE GASTOS BANCARIOS */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <Calculator className="w-5 h-5 text-indigo-600" />
+            <h3 className="font-bold text-slate-800 text-sm">Resumen y Totales de Gastos Bancarios por Concepto</h3>
+          </div>
+          <span className="text-xs font-bold text-slate-500">
+            Total Gastos Periodo: <span className="text-indigo-700 font-mono text-sm">{formatCOP(gastosParaTotales.reduce((acc, b) => acc + b.monto, 0))}</span>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Card 1: Comisiones Bancarias Agrupadas */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+            <div>
+              <p className="text-xs font-bold text-slate-800">Comisiones Bancarias (Agrupado)</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {txComisiones.length} reg. (Traslados, Proveedores, Nómina, Nequi, Otros Bancos)
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="font-mono font-bold text-sm text-slate-900 block">{formatCOP(totalComisiones)}</span>
+            </div>
+          </div>
+
+          {/* Card 2: GMF 4x1000 Agrupado */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+            <div>
+              <p className="text-xs font-bold text-slate-800">GMF 4*1000 (Agrupado)</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {txGMF.length} reg. (CXC IMPTO GOBIERNO 4X1000 + IMPTO GOBIERNO)
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="font-mono font-bold text-sm text-slate-900 block">{formatCOP(totalGMF)}</span>
+            </div>
+          </div>
+
+          {/* Cards Restantes: Conceptos Individuales */}
+          {resumenOtrosGastos.map((item, idx) => (
+            <div key={idx} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+              <div>
+                <p className="text-xs font-bold text-slate-800 truncate max-w-[180px]">{item.concepto}</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">{item.cantidad} registro(s)</p>
+              </div>
+              <div className="text-right">
+                <span className="font-mono font-bold text-sm text-slate-900 block">{formatCOP(item.total)}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
