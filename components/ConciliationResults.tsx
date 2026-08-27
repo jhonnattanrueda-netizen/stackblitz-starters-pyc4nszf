@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ConciliationItem, ConciliationSummary, BankTransaction, SiigoTransaction } from '../types/conciliacion';
-import { CheckCircle2, AlertCircle, Clock, Check, Building2, Search } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Clock, Check, Building2, Search, Wallet } from 'lucide-react';
 
 interface ConciliationResultsProps {
   results: ConciliationItem[];
@@ -31,7 +31,7 @@ const CONCEPTOS_GASTOS_BANCARIOS = [
   'SERVICIO POR PAGOS A NEQUI',
   'VALOR IVA',
   'DEBITO POR RECHAZOS PAGOS',
-  'REV DEBITO POR RECHAZOS PAGOS',  
+  'REV DEBITO POR RECHAZOS PAGOS',
 ];
 
 export default function ConciliationResults({
@@ -40,31 +40,39 @@ export default function ConciliationResults({
   siigoDataRaw,
   bankTransactions,
 }: ConciliationResultsProps) {
-  // Estados de vista: 'TODOS' | 'CONCILIADOS' | 'PENDIENTES_BANCO' | 'PENDIENTES_SIIGO' | 'GASTOS_BANCARIOS'
+  // Estados de vista: 'TODOS' | 'CONCILIADOS' | 'PENDIENTES_OPERATIVOS' | 'PENDIENTES_GASTOS' | 'PENDIENTES_SIIGO'
   const [filtroVista, setFiltroVista] = useState<
-    'TODOS' | 'CONCILIADOS' | 'PENDIENTES_BANCO' | 'PENDIENTES_SIIGO' | 'GASTOS_BANCARIOS'
+    'TODOS' | 'CONCILIADOS' | 'PENDIENTES_OPERATIVOS' | 'PENDIENTES_GASTOS' | 'PENDIENTES_SIIGO'
   >('TODOS');
   
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Identificar si una transacción del banco es Gasto Bancario
+  // Comprobar si un movimiento del banco es Gasto Bancario
   const esGastoBancario = (descripcion: string) => {
     const descUpper = descripcion.toUpperCase().trim();
     return CONCEPTOS_GASTOS_BANCARIOS.some((concepto) => descUpper.includes(concepto));
   };
 
-  // Clasificación de listas
+  // 1. Movimientos Conciliados 1:1 o por Suma
   const concilidados = results.filter((r) => r.estado === 'CONCILIADO');
-  const pendientesBanco = bankTransactions.filter(
+
+  // 2. Todos los pendientes del banco (No conciliados)
+  const pendientesBancoTotal = bankTransactions.filter(
     (b) => !results.some((r) => r.estado === 'CONCILIADO' && r.bankTransaction?.id === b.id)
   );
+
+  // 3. Subdivisión 1: Pendientes Operativos (No son gastos)
+  const pendientesOperativosBanco = pendientesBancoTotal.filter((b) => !esGastoBancario(b.descripcion));
+
+  // 4. Subdivisión 2: Pendientes Gastos Bancarios (4x1000, comisiones, cuotas)
+  const pendientesGastosBanco = pendientesBancoTotal.filter((b) => esGastoBancario(b.descripcion));
+
+  // 5. Pendientes en Siigo (Asientos contables no reflejados en banco)
   const pendientesSiigo = siigoDataRaw.filter(
     (s) => !results.some((r) => r.estado === 'CONCILIADO' && r.siigoTransaction?.id === s.id)
   );
 
-  // Lista exclusiva de Gastos Bancarios del Extracto
-  const gastosBancariosList = bankTransactions.filter((b) => esGastoBancario(b.descripcion));
-  const totalMontoGastos = gastosBancariosList.reduce((acc, b) => acc + b.monto, 0);
+  const totalMontoGastos = pendientesGastosBanco.reduce((acc, b) => acc + b.monto, 0);
 
   const formatCOP = (val: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -76,10 +84,10 @@ export default function ConciliationResults({
 
   return (
     <div className="space-y-6">
-      {/* 1. Tarjetas de Resumen General */}
+      {/* 1. Tarjetas de Resumen de Saldos */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Movimientos Conciliados</span>
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Conciliados</span>
           <div className="text-xl font-black text-emerald-600 mt-1 flex items-center gap-1.5">
             <CheckCircle2 className="w-5 h-5" /> {concilidados.length}
           </div>
@@ -89,9 +97,17 @@ export default function ConciliationResults({
         <div className="bg-white p-4 rounded-2xl border border-rose-100 bg-rose-50/20 shadow-sm">
           <span className="text-[11px] font-bold text-rose-600 uppercase tracking-wider block">Pendientes Banco</span>
           <div className="text-xl font-black text-rose-700 mt-1 flex items-center gap-1.5">
-            <AlertCircle className="w-5 h-5" /> {pendientesBanco.length}
+            <AlertCircle className="w-5 h-5" /> {pendientesOperativosBanco.length}
           </div>
-          <span className="text-[10px] text-rose-500 mt-0.5 block">Por contabilizar en Siigo</span>
+          <span className="text-[10px] text-rose-500 mt-0.5 block">Operaciones por registrar</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-blue-100 bg-blue-50/20 shadow-sm">
+          <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider block">Gastos Bancarios</span>
+          <div className="text-xl font-black text-blue-700 mt-1 flex items-center gap-1.5">
+            <Building2 className="w-5 h-5" /> {pendientesGastosBanco.length}
+          </div>
+          <span className="text-[10px] text-blue-500 mt-0.5 block">Total: {formatCOP(totalMontoGastos)}</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-amber-100 bg-amber-50/20 shadow-sm">
@@ -100,14 +116,6 @@ export default function ConciliationResults({
             <Clock className="w-5 h-5" /> {pendientesSiigo.length}
           </div>
           <span className="text-[10px] text-amber-600 mt-0.5 block">Por reflejar en extracto</span>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-blue-100 bg-blue-50/20 shadow-sm">
-          <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider block">Gastos Bancarios</span>
-          <div className="text-xl font-black text-blue-700 mt-1 flex items-center gap-1.5">
-            <Building2 className="w-5 h-5" /> {gastosBancariosList.length}
-          </div>
-          <span className="text-[10px] text-blue-500 mt-0.5 block">Total: {formatCOP(totalMontoGastos)}</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-indigo-100 bg-indigo-50/20 shadow-sm">
@@ -119,7 +127,7 @@ export default function ConciliationResults({
         </div>
       </div>
 
-      {/* 2. Barra Superior de Pestañas y Filtros */}
+      {/* 2. Barra de Filtros con la nueva división de Pendientes */}
       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-3">
         <div className="flex bg-slate-100 p-1 rounded-xl gap-1 text-xs font-bold overflow-x-auto">
           <button
@@ -140,13 +148,24 @@ export default function ConciliationResults({
             ✓ Conciliados ({concilidados.length})
           </button>
 
+          {/* DIVISIÓN 1: Pendientes Operativos Banco */}
           <button
-            onClick={() => setFiltroVista('PENDIENTES_BANCO')}
-            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap ${
-              filtroVista === 'PENDIENTES_BANCO' ? 'bg-rose-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+            onClick={() => setFiltroVista('PENDIENTES_OPERATIVOS')}
+            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 ${
+              filtroVista === 'PENDIENTES_OPERATIVOS' ? 'bg-rose-600 text-white shadow' : 'text-rose-700 hover:bg-rose-50'
             }`}
           >
-            ⚠️ Pendientes Banco ({pendientesBanco.length})
+            ⚠️ Pendientes Banco ({pendientesOperativosBanco.length})
+          </button>
+
+          {/* DIVISIÓN 2: Pendientes Gastos Bancarios */}
+          <button
+            onClick={() => setFiltroVista('PENDIENTES_GASTOS')}
+            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 ${
+              filtroVista === 'PENDIENTES_GASTOS' ? 'bg-blue-600 text-white shadow' : 'text-blue-700 hover:bg-blue-50'
+            }`}
+          >
+            🏦 Pendientes Gastos Bancarios ({pendientesGastosBanco.length})
           </button>
 
           <button
@@ -156,16 +175,6 @@ export default function ConciliationResults({
             }`}
           >
             ⌛ Pendientes Siigo ({pendientesSiigo.length})
-          </button>
-
-          {/* NUEVA PESTAÑA: Gastos Bancarios */}
-          <button
-            onClick={() => setFiltroVista('GASTOS_BANCARIOS')}
-            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 ${
-              filtroVista === 'GASTOS_BANCARIOS' ? 'bg-blue-600 text-white shadow' : 'text-blue-700 hover:bg-blue-50'
-            }`}
-          >
-            🏦 Gastos Bancarios ({gastosBancariosList.length})
           </button>
         </div>
 
@@ -189,10 +198,10 @@ export default function ConciliationResults({
           <div className="bg-indigo-600 text-white p-4 font-bold text-sm flex justify-between items-center">
             <span>Extracto / Preliminar Bancario</span>
             <span className="bg-indigo-500/40 text-xs px-2.5 py-1 rounded-lg">
-              {filtroVista === 'GASTOS_BANCARIOS'
-                ? gastosBancariosList.length
-                : filtroVista === 'PENDIENTES_BANCO'
-                ? pendientesBanco.length
+              {filtroVista === 'PENDIENTES_GASTOS'
+                ? pendientesGastosBanco.length
+                : filtroVista === 'PENDIENTES_OPERATIVOS'
+                ? pendientesOperativosBanco.length
                 : bankTransactions.length}{' '}
               registros
             </span>
@@ -201,10 +210,10 @@ export default function ConciliationResults({
           <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100">
             {(filtroVista === 'PENDIENTES_SIIGO'
               ? []
-              : filtroVista === 'GASTOS_BANCARIOS'
-              ? gastosBancariosList
-              : filtroVista === 'PENDIENTES_BANCO'
-              ? pendientesBanco
+              : filtroVista === 'PENDIENTES_GASTOS'
+              ? pendientesGastosBanco
+              : filtroVista === 'PENDIENTES_OPERATIVOS'
+              ? pendientesOperativosBanco
               : bankTransactions)
               .filter((b) => {
                 if (!searchTerm) return true;
@@ -264,7 +273,7 @@ export default function ConciliationResults({
           <div className="bg-emerald-700 text-white p-4 font-bold text-sm flex justify-between items-center">
             <span>Movimiento Auxiliar Siigo</span>
             <span className="bg-emerald-600/40 text-xs px-2.5 py-1 rounded-lg">
-              {filtroVista === 'GASTOS_BANCARIOS'
+              {filtroVista === 'PENDIENTES_GASTOS'
                 ? 0
                 : filtroVista === 'PENDIENTES_SIIGO'
                 ? pendientesSiigo.length
@@ -274,16 +283,16 @@ export default function ConciliationResults({
           </div>
 
           <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100">
-            {filtroVista === 'GASTOS_BANCARIOS' ? (
+            {filtroVista === 'PENDIENTES_GASTOS' ? (
               <div className="p-12 text-center text-slate-400">
                 <Building2 className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                 <p className="text-xs font-bold text-slate-600">Pestaña exclusiva de Gastos del Extracto</p>
                 <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
-                  Aquí se agrupan las comisiones, 4x1000 e intereses para su registro contable directo en Siigo.
+                  Aquí se agrupan las comisiones, 4x1000 e intereses no contabilizados para su asiento en Siigo.
                 </p>
               </div>
             ) : (
-              (filtroVista === 'PENDIENTES_BANCO' ? [] : filtroVista === 'PENDIENTES_SIIGO' ? pendientesSiigo : siigoDataRaw)
+              (filtroVista === 'PENDIENTES_OPERATIVOS' ? [] : filtroVista === 'PENDIENTES_SIIGO' ? pendientesSiigo : siigoDataRaw)
                 .filter((s) => {
                   if (!searchTerm) return true;
                   const term = searchTerm.toLowerCase();
