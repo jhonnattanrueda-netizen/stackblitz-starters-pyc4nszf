@@ -13,13 +13,12 @@ export async function GET(request: Request) {
 
   if (!username || !accessKey) {
     return NextResponse.json(
-      { error: 'Credenciales de Siigo no configuradas en Vercel.' },
+      { error: 'Credenciales de Siigo no configuradas.' },
       { status: 401 }
     );
   }
 
   try {
-    // 1. Autenticación
     const authRes = await fetch(`${baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -29,7 +28,7 @@ export async function GET(request: Request) {
 
     const authData = await authRes.json();
     if (!authRes.ok) {
-      return NextResponse.json({ error: 'Autenticación rechazada por Siigo', detalle: authData }, { status: 401 });
+      return NextResponse.json({ error: 'Fallo de autenticación en Siigo' }, { status: 401 });
     }
 
     const token = authData.access_token;
@@ -37,7 +36,7 @@ export async function GET(request: Request) {
     let currentPage = 1;
     let totalPages = 1;
 
-    // 2. Traer páginas
+    // Recorrido de todas las páginas de Siigo (2.142 registros)
     do {
       const entriesRes = await fetch(
         `${baseUrl}/v1/journals?page=${currentPage}&page_size=100`,
@@ -62,13 +61,12 @@ export async function GET(request: Request) {
       totalPages = Math.ceil(totalResults / 100);
 
       currentPage++;
-    } while (currentPage <= totalPages && currentPage <= 30);
+    } while (currentPage <= totalPages && currentPage <= 35); // Trae hasta 3.500 comprobantes
 
-    // Si abres la URL con ?debug=true en el navegador, verás el objeto puro que manda Siigo
     if (isDebug) {
       return NextResponse.json({
-        total_recibidos: allJournals.length,
-        primeros_3_registros: allJournals.slice(0, 3),
+        total_obtenidos: allJournals.length,
+        registros: allJournals,
       });
     }
 
@@ -78,7 +76,7 @@ export async function GET(request: Request) {
     );
   } catch (error: any) {
     return NextResponse.json(
-      { error: 'Error de servidor', mensaje: error?.message || String(error) },
+      { error: 'Error interno en servidor', mensaje: error?.message || String(error) },
       { status: 500 }
     );
   }

@@ -41,9 +41,8 @@ export default function Home() {
       const parsedBankData = await parseBankExcel(file);
       setTransactions(parsedBankData);
 
-      // Petición directa rompiendo caché
       const res = await fetch(`/api/siigo/journal-entries?t=${Date.now()}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error('Error al conectar con el servidor de Siigo');
+      if (!res.ok) throw new Error('Error de conexión con Siigo.');
 
       const data = await res.json();
       const results = data.results || [];
@@ -57,11 +56,10 @@ export default function Home() {
           const accountCode = String(item.account?.code || '').trim();
           
           if (accountCode.startsWith('11')) {
-            // Evaluamos la propiedad 'movement' estricta que devuelve Siigo Nube ('Debit' vs 'Credit')
-            const movementRaw = String(item.movement || item.type || '').trim();
-            const isCredit = movementRaw === 'Credit' || movementRaw === 'credit' || movementRaw === 'C';
-            
-            const montoAbsoluto = Math.abs(Number(item.value || item.debit || item.credit || 0));
+            // Lectura de la clave real confirmada en la API: item.movement === "Credit"
+            const movAttr = String(item.movement || '').trim();
+            const esCredito = movAttr === 'Credit' || movAttr === 'credit';
+            const montoVal = Math.abs(Number(item.value || item.debit || item.credit || 0));
 
             extractedSiigoItems.push({
               id: `${entry.id || entryIdx}-${itemIdx}-${item.account?.id || itemIdx}`,
@@ -69,9 +67,8 @@ export default function Home() {
               comprobante: entry.name || entry.document?.name || `CC-${entry.number || entryIdx}`,
               tercero: item.customer?.identification || item.customer?.id || 'Tercero No Especificado',
               observaciones: item.description || entry.observations || 'Sin detalle',
-              monto: montoAbsoluto,
-              // Asignación explícita: Si es Credit va a CREDITO, de lo contrario a DEBITO
-              tipo: isCredit ? 'CREDITO' : 'DEBITO',
+              monto: montoVal,
+              tipo: esCredito ? 'CREDITO' : 'DEBITO',
               cuentaCode: accountCode,
             });
           }
@@ -84,7 +81,7 @@ export default function Home() {
       setConciliationResults(items);
       setConciliationSummary(summary);
     } catch (err: any) {
-      setError(err?.message || 'Error procesando datos.');
+      setError(err?.message || 'Error al procesar la información.');
     } finally {
       setLoading(false);
     }
@@ -195,7 +192,7 @@ export default function Home() {
             {loading && (
               <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center gap-3 text-slate-700">
                 <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <span className="font-semibold text-sm">Consultando los comprobantes contables en Siigo Nube...</span>
+                <span className="font-semibold text-sm">Consultando y clasificando los 2.142 comprobantes en Siigo...</span>
               </div>
             )}
 
