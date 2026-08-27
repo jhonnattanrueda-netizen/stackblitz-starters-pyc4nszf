@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ConciliationItem, ConciliationSummary, BankTransaction, SiigoTransaction } from '../types/conciliacion';
-import { CheckCircle2, AlertCircle, HelpCircle, ArrowUpRight, ArrowDownLeft, FileText, Check, Clock } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Clock, Check, Building2, Search } from 'lucide-react';
 
 interface ConciliationResultsProps {
   results: ConciliationItem[];
@@ -11,20 +11,58 @@ interface ConciliationResultsProps {
   bankTransactions: BankTransaction[];
 }
 
+// Lista oficial de palabras clave / conceptos de Gastos Bancarios
+const CONCEPTOS_GASTOS_BANCARIOS = [
+  'ABONO INTERESES AHORROS',
+  'C MANEJO TARJ DEB',
+  'COBRO IVA PAGOS AUTOMATICOS',
+  'COMIS SWIFT GIRO VTA MDA EXT',
+  'COMIS TRASLADO EN SUCURSAL',
+  'CUOTA MANEJO CUPO ROTATIVO',
+  'CUOTA PLAN CANAL NEGOCIOS',
+  'CXC IMPTO GOBIERNO 4X1000 MON',
+  'IMPTO GOBIERNO 4X1000',
+  'IVA CUOTA MANEJO CUPO ROTATIVO',
+  'IVA CUOTA PLAN CANAL NEGOCIOS',
+  'RETENCION EN LA FUENTE',
+  'SERVICIO PAGO A OTROS BANCOS',
+  'SERVICIO PAGO A PROVEEDORES',
+  'SERVICIO PAGO DE NOMINA',
+  'SERVICIO POR PAGOS A NEQUI',
+  'VALOR IVA',
+];
+
 export default function ConciliationResults({
   results,
   summary,
   siigoDataRaw,
   bankTransactions,
 }: ConciliationResultsProps) {
-  // Estado para alternar entre ver: 'TODOS', 'CONCILIADOS', 'PENDIENTES_BANCO', 'PENDIENTES_SIIGO'
-  const [filtroVista, setFiltroVista] = useState<'TODOS' | 'CONCILIADOS' | 'PENDIENTES_BANCO' | 'PENDIENTES_SIIGO'>('TODOS');
+  // Estados de vista: 'TODOS' | 'CONCILIADOS' | 'PENDIENTES_BANCO' | 'PENDIENTES_SIIGO' | 'GASTOS_BANCARIOS'
+  const [filtroVista, setFiltroVista] = useState<
+    'TODOS' | 'CONCILIADOS' | 'PENDIENTES_BANCO' | 'PENDIENTES_SIIGO' | 'GASTOS_BANCARIOS'
+  >('TODOS');
+  
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Separación de listas
+  // Identificar si una transacción del banco es Gasto Bancario
+  const esGastoBancario = (descripcion: string) => {
+    const descUpper = descripcion.toUpperCase().trim();
+    return CONCEPTOS_GASTOS_BANCARIOS.some((concepto) => descUpper.includes(concepto));
+  };
+
+  // Clasificación de listas
   const concilidados = results.filter((r) => r.estado === 'CONCILIADO');
-  const pendientesBanco = bankTransactions.filter((b) => !results.some((r) => r.estado === 'CONCILIADO' && r.bankTransaction?.id === b.id));
-  const pendientesSiigo = siigoDataRaw.filter((s) => !results.some((r) => r.estado === 'CONCILIADO' && r.siigoTransaction?.id === s.id));
+  const pendientesBanco = bankTransactions.filter(
+    (b) => !results.some((r) => r.estado === 'CONCILIADO' && r.bankTransaction?.id === b.id)
+  );
+  const pendientesSiigo = siigoDataRaw.filter(
+    (s) => !results.some((r) => r.estado === 'CONCILIADO' && r.siigoTransaction?.id === s.id)
+  );
+
+  // Lista exclusiva de Gastos Bancarios del Extracto
+  const gastosBancariosList = bankTransactions.filter((b) => esGastoBancario(b.descripcion));
+  const totalMontoGastos = gastosBancariosList.reduce((acc, b) => acc + b.monto, 0);
 
   const formatCOP = (val: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -36,101 +74,136 @@ export default function ConciliationResults({
 
   return (
     <div className="space-y-6">
-      {/* 1. Tarjetas Resumen de Saldos */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Movimientos Conciliados</span>
-          <div className="text-2xl font-black text-emerald-600 mt-1 flex items-center gap-2">
-            <CheckCircle2 className="w-6 h-6" /> {concilidados.length}
+      {/* 1. Tarjetas de Resumen General */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Movimientos Conciliados</span>
+          <div className="text-xl font-black text-emerald-600 mt-1 flex items-center gap-1.5">
+            <CheckCircle2 className="w-5 h-5" /> {concilidados.length}
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">Cruces 1:1 verificados exactos</span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">Cruces 1:1 y sumas verificadas</span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-rose-100 bg-rose-50/30 shadow-sm">
-          <span className="text-xs font-bold text-rose-600 uppercase tracking-wider">Pendientes Extracto Banco</span>
-          <div className="text-2xl font-black text-rose-700 mt-1 flex items-center gap-2">
-            <AlertCircle className="w-6 h-6" /> {pendientesBanco.length}
+        <div className="bg-white p-4 rounded-2xl border border-rose-100 bg-rose-50/20 shadow-sm">
+          <span className="text-[11px] font-bold text-rose-600 uppercase tracking-wider block">Pendientes Banco</span>
+          <div className="text-xl font-black text-rose-700 mt-1 flex items-center gap-1.5">
+            <AlertCircle className="w-5 h-5" /> {pendientesBanco.length}
           </div>
-          <span className="text-[11px] text-rose-500 mt-1 block">Por contabilizar en Siigo</span>
+          <span className="text-[10px] text-rose-500 mt-0.5 block">Por contabilizar en Siigo</span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-amber-100 bg-amber-50/30 shadow-sm">
-          <span className="text-xs font-bold text-amber-600 uppercase tracking-wider">Pendientes Auxiliar Siigo</span>
-          <div className="text-2xl font-black text-amber-700 mt-1 flex items-center gap-2">
-            <Clock className="w-6 h-6" /> {pendientesSiigo.length}
+        <div className="bg-white p-4 rounded-2xl border border-amber-100 bg-amber-50/20 shadow-sm">
+          <span className="text-[11px] font-bold text-amber-600 uppercase tracking-wider block">Pendientes Siigo</span>
+          <div className="text-xl font-black text-amber-700 mt-1 flex items-center gap-1.5">
+            <Clock className="w-5 h-5" /> {pendientesSiigo.length}
           </div>
-          <span className="text-[11px] text-amber-600 mt-1 block">Por reflejarse en extracto</span>
+          <span className="text-[10px] text-amber-600 mt-0.5 block">Por reflejar en extracto</span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-indigo-100 bg-indigo-50/30 shadow-sm">
-          <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Diferencia Neta de Saldos</span>
-          <div className="text-xl font-black text-indigo-900 mt-1">
+        <div className="bg-white p-4 rounded-2xl border border-blue-100 bg-blue-50/20 shadow-sm">
+          <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider block">Gastos Bancarios</span>
+          <div className="text-xl font-black text-blue-700 mt-1 flex items-center gap-1.5">
+            <Building2 className="w-5 h-5" /> {gastosBancariosList.length}
+          </div>
+          <span className="text-[10px] text-blue-500 mt-0.5 block">Total: {formatCOP(totalMontoGastos)}</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-indigo-100 bg-indigo-50/20 shadow-sm">
+          <span className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider block">Diferencia Neta</span>
+          <div className="text-lg font-black text-indigo-900 mt-1">
             {formatCOP(summary.diferenciaTotal)}
           </div>
-          <span className="text-[11px] text-indigo-500 mt-1 block">Variación final acumulada</span>
+          <span className="text-[10px] text-indigo-500 mt-0.5 block">Variación acumulada</span>
         </div>
       </div>
 
-      {/* 2. Barra de Filtros de Visualización */}
+      {/* 2. Barra Superior de Pestañas y Filtros */}
       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-3">
-        <div className="flex bg-slate-100 p-1 rounded-xl gap-1 text-xs font-bold">
+        <div className="flex bg-slate-100 p-1 rounded-xl gap-1 text-xs font-bold overflow-x-auto">
           <button
             onClick={() => setFiltroVista('TODOS')}
-            className={`px-4 py-2 rounded-lg transition-all ${
+            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap ${
               filtroVista === 'TODOS' ? 'bg-white text-slate-800 shadow' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             📋 Todos ({bankTransactions.length + siigoDataRaw.length})
           </button>
+          
           <button
             onClick={() => setFiltroVista('CONCILIADOS')}
-            className={`px-4 py-2 rounded-lg transition-all ${
+            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap ${
               filtroVista === 'CONCILIADOS' ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             ✓ Conciliados ({concilidados.length})
           </button>
+
           <button
             onClick={() => setFiltroVista('PENDIENTES_BANCO')}
-            className={`px-4 py-2 rounded-lg transition-all ${
+            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap ${
               filtroVista === 'PENDIENTES_BANCO' ? 'bg-rose-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             ⚠️ Pendientes Banco ({pendientesBanco.length})
           </button>
+
           <button
             onClick={() => setFiltroVista('PENDIENTES_SIIGO')}
-            className={`px-4 py-2 rounded-lg transition-all ${
+            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap ${
               filtroVista === 'PENDIENTES_SIIGO' ? 'bg-amber-500 text-white shadow' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             ⌛ Pendientes Siigo ({pendientesSiigo.length})
           </button>
+
+          {/* NUEVA PESTAÑA: Gastos Bancarios */}
+          <button
+            onClick={() => setFiltroVista('GASTOS_BANCARIOS')}
+            className={`px-3.5 py-2 rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 ${
+              filtroVista === 'GASTOS_BANCARIOS' ? 'bg-blue-600 text-white shadow' : 'text-blue-700 hover:bg-blue-50'
+            }`}
+          >
+            🏦 Gastos Bancarios ({gastosBancariosList.length})
+          </button>
         </div>
 
-        {/* Buscador reactivo */}
-        <input
-          type="text"
-          placeholder="🔍 Buscar por monto, concepto o comprobante..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="bg-slate-50 border border-slate-300 text-xs px-3.5 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-72 font-medium"
-        />
+        {/* Buscador de texto */}
+        <div className="relative w-full sm:w-64">
+          <input
+            type="text"
+            placeholder="Buscar..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="bg-slate-50 border border-slate-300 text-xs pl-8 pr-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-full font-medium"
+          />
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+        </div>
       </div>
 
-      {/* 3. Tablas Desglosadas según el Filtro Seleccionado */}
+      {/* 3. Tablas Desglosadas según Pestaña */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Tabla Extracto Bancario */}
+        {/* Tabla Extracto / Preliminar Bancario */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="bg-indigo-600 text-white p-4 font-bold text-sm flex justify-between items-center">
             <span>Extracto / Preliminar Bancario</span>
             <span className="bg-indigo-500/40 text-xs px-2.5 py-1 rounded-lg">
-              {filtroVista === 'PENDIENTES_BANCO' ? pendientesBanco.length : bankTransactions.length} registros
+              {filtroVista === 'GASTOS_BANCARIOS'
+                ? gastosBancariosList.length
+                : filtroVista === 'PENDIENTES_BANCO'
+                ? pendientesBanco.length
+                : bankTransactions.length}{' '}
+              registros
             </span>
           </div>
 
           <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100">
-            {(filtroVista === 'PENDIENTES_SIIGO' ? [] : (filtroVista === 'PENDIENTES_BANCO' ? pendientesBanco : bankTransactions))
+            {(filtroVista === 'PENDIENTES_SIIGO'
+              ? []
+              : filtroVista === 'GASTOS_BANCARIOS'
+              ? gastosBancariosList
+              : filtroVista === 'PENDIENTES_BANCO'
+              ? pendientesBanco
+              : bankTransactions)
               .filter((b) => {
                 if (!searchTerm) return true;
                 const term = searchTerm.toLowerCase();
@@ -138,14 +211,25 @@ export default function ConciliationResults({
               })
               .map((b) => {
                 const esConciliado = concilidados.some((c) => c.bankTransaction?.id === b.id);
+                const esGasto = esGastoBancario(b.descripcion);
+
                 return (
-                  <div key={b.id} className={`p-3.5 text-xs flex justify-between items-center hover:bg-slate-50 ${esConciliado ? 'bg-emerald-50/20' : ''}`}>
+                  <div
+                    key={b.id}
+                    className={`p-3.5 text-xs flex justify-between items-center hover:bg-slate-50 ${
+                      esConciliado ? 'bg-emerald-50/20' : ''
+                    }`}
+                  >
                     <div className="space-y-0.5 max-w-[65%]">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-mono text-slate-400">{b.fecha}</span>
                         {esConciliado ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
                             <Check className="w-3 h-3" /> Conciliado
+                          </span>
+                        ) : esGasto ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                            Gasto Bancario
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
@@ -158,7 +242,11 @@ export default function ConciliationResults({
                     </div>
 
                     <div className="text-right">
-                      <span className={`font-mono font-bold text-sm block ${b.tipo === 'DEBITO' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      <span
+                        className={`font-mono font-bold text-sm block ${
+                          b.tipo === 'DEBITO' ? 'text-emerald-600' : 'text-rose-600'
+                        }`}
+                      >
                         {b.tipo === 'DEBITO' ? '+' : '-'}{formatCOP(b.monto)}
                       </span>
                       <span className="text-[10px] font-bold text-slate-400">{b.tipo}</span>
@@ -169,52 +257,83 @@ export default function ConciliationResults({
           </div>
         </div>
 
-        {/* Tabla Auxiliar Contable Siigo */}
+        {/* Tabla Movimiento Auxiliar Siigo */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="bg-emerald-700 text-white p-4 font-bold text-sm flex justify-between items-center">
             <span>Movimiento Auxiliar Siigo</span>
             <span className="bg-emerald-600/40 text-xs px-2.5 py-1 rounded-lg">
-              {filtroVista === 'PENDIENTES_SIIGO' ? pendientesSiigo.length : siigoDataRaw.length} movimientos
+              {filtroVista === 'GASTOS_BANCARIOS'
+                ? 0
+                : filtroVista === 'PENDIENTES_SIIGO'
+                ? pendientesSiigo.length
+                : siigoDataRaw.length}{' '}
+              movimientos
             </span>
           </div>
 
           <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100">
-            {(filtroVista === 'PENDIENTES_BANCO' ? [] : (filtroVista === 'PENDIENTES_SIIGO' ? pendientesSiigo : siigoDataRaw))
-              .filter((s) => {
-                if (!searchTerm) return true;
-                const term = searchTerm.toLowerCase();
-                return s.comprobante.toLowerCase().includes(term) || s.tercero.toLowerCase().includes(term) || String(s.monto).includes(term) || s.fecha.includes(term);
-              })
-              .map((s) => {
-                const esConciliado = concilidados.some((c) => c.siigoTransaction?.id === s.id);
-                return (
-                  <div key={s.id} className={`p-3.5 text-xs flex justify-between items-center hover:bg-slate-50 ${esConciliado ? 'bg-emerald-50/20' : ''}`}>
-                    <div className="space-y-0.5 max-w-[65%]">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono text-slate-400">{s.fecha}</span>
-                        {esConciliado ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                            <Check className="w-3 h-3" /> Conciliado
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                            Pendiente Siigo
-                          </span>
-                        )}
+            {filtroVista === 'GASTOS_BANCARIOS' ? (
+              <div className="p-12 text-center text-slate-400">
+                <Building2 className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                <p className="text-xs font-bold text-slate-600">Pestaña exclusiva de Gastos del Extracto</p>
+                <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
+                  Aquí se agrupan las comisiones, 4x1000 e intereses para su registro contable directo en Siigo.
+                </p>
+              </div>
+            ) : (
+              (filtroVista === 'PENDIENTES_BANCO' ? [] : filtroVista === 'PENDIENTES_SIIGO' ? pendientesSiigo : siigoDataRaw)
+                .filter((s) => {
+                  if (!searchTerm) return true;
+                  const term = searchTerm.toLowerCase();
+                  return (
+                    s.comprobante.toLowerCase().includes(term) ||
+                    s.tercero.toLowerCase().includes(term) ||
+                    String(s.monto).includes(term) ||
+                    s.fecha.includes(term)
+                  );
+                })
+                .map((s) => {
+                  const esConciliado = concilidados.some((c) => c.siigoTransaction?.id === s.id);
+                  return (
+                    <div
+                      key={s.id}
+                      className={`p-3.5 text-xs flex justify-between items-center hover:bg-slate-50 ${
+                        esConciliado ? 'bg-emerald-50/20' : ''
+                      }`}
+                    >
+                      <div className="space-y-0.5 max-w-[65%]">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-slate-400">{s.fecha}</span>
+                          {esConciliado ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                              <Check className="w-3 h-3" /> Conciliado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                              Pendiente Siigo
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-bold text-slate-800 truncate">
+                          {s.comprobante} - {s.tercero}
+                        </p>
+                        <p className="text-[10px] text-slate-400 truncate">{s.observaciones}</p>
                       </div>
-                      <p className="font-bold text-slate-800 truncate">{s.comprobante} - {s.tercero}</p>
-                      <p className="text-[10px] text-slate-400 truncate">{s.observaciones}</p>
-                    </div>
 
-                    <div className="text-right">
-                      <span className={`font-mono font-bold text-sm block ${s.tipo === 'DEBITO' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {s.tipo === 'DEBITO' ? '+' : '-'}{formatCOP(s.monto)}
-                      </span>
-                      <span className="text-[10px] font-bold text-slate-400">{s.tipo}</span>
+                      <div className="text-right">
+                        <span
+                          className={`font-mono font-bold text-sm block ${
+                            s.tipo === 'DEBITO' ? 'text-emerald-600' : 'text-rose-600'
+                          }`}
+                        >
+                          {s.tipo === 'DEBITO' ? '+' : '-'}{formatCOP(s.monto)}
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-400">{s.tipo}</span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+            )}
           </div>
         </div>
       </div>
