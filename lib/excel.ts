@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { BankTransaction, SiigoTransaction } from '../types/conciliacion';
 
-// 1. Procesamiento del Extracto Bancario
+// Parser Dinámico e Inteligente para Extractos o Preliminares de Banco
 export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -9,6 +9,54 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
   const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
   const transactions: BankTransaction[] = [];
 
+  if (rawData.length === 0) return [];
+
+  // Detectar si es una plantilla Preliminar sin encabezados (Estructura: NroCta, Col1, Col2, Día, Mes, Año, Valor, Ref, Descripcion...)
+  const isPreliminar = rawData.some((row) => {
+    return (
+      row &&
+      row.length >= 9 &&
+      typeof row[3] === 'number' && // Día
+      typeof row[4] === 'number' && // Mes
+      typeof row[5] === 'number' && // Año
+      typeof row[6] === 'number'    // Valor
+    );
+  });
+
+  if (isPreliminar) {
+    // Parser especializado para Preliminares de Banco
+    rawData.forEach((row, index) => {
+      if (!row || row.length < 9) return;
+
+      const dia = parseInt(row[3], 10);
+      const mes = parseInt(row[4], 10);
+      const ano = parseInt(row[5], 10);
+      const valorRaw = row[6];
+      const descripcion = String(row[8] || '').trim();
+      const refExtra = String(row[9] || 'N/A').trim();
+
+      if (!isNaN(dia) && !isNaN(mes) && !isNaN(ano) && descripcion && valorRaw !== undefined) {
+        const fechaFormatted = `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+        const montoNum = Math.abs(Number(valorRaw) || 0);
+        const esNegativo = Number(valorRaw) < 0;
+
+        if (montoNum > 0) {
+          transactions.push({
+            id: `bank-prelim-${index}-${Date.now()}`,
+            fecha: fechaFormatted,
+            referencia: refExtra !== 'undefined' ? refExtra : 'N/A',
+            descripcion: descripcion,
+            monto: montoNum,
+            tipo: esNegativo ? 'CREDITO' : 'DEBITO',
+          });
+        }
+      }
+    });
+
+    return transactions;
+  }
+
+  // Parser estándar para Extractos Bancarios tradicionales (Bancolombia)
   let headerRowIndex = -1;
   for (let i = 0; i < rawData.length; i++) {
     const row = rawData[i];
@@ -59,7 +107,7 @@ export const parseBankExcel = async (file: File): Promise<BankTransaction[]> => 
   return transactions;
 };
 
-// 2. Procesamiento del Auxiliar por Cuenta Contable de Siigo
+// Parser Universal para Archivos de Movimiento Auxiliar por Cuenta Contable Siigo
 export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransaction[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -67,7 +115,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
   const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
   const items: SiigoTransaction[] = [];
 
-  // Encontrar la fila del encabezado ("Código contable")
+  // Buscar dinámicamente la fila donde comienzan los títulos ("Código contable")
   let headerIndex = -1;
   for (let i = 0; i < rawData.length; i++) {
     const row = rawData[i];
@@ -90,7 +138,7 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
     const tercero = String(row[7] || '').trim();
     const descripcion = String(row[8] || '').trim();
     
-    // Lectura explícita de Débito (columna 12) y Crédito (columna 13)
+    // Extracción de Débito (Columna 12) y Crédito (Columna 13)
     const valDebito = parseFloat(row[12]) || 0;
     const valCredito = parseFloat(row[13]) || 0;
 
