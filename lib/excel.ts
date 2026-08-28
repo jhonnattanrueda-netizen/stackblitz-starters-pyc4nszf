@@ -242,3 +242,22 @@ export const parseSiigoAuxiliarExcel = async (file: File): Promise<SiigoTransact
 
   return items;
 };
+// Extractor de valor numérico exacto que viene después de "Base:" en la Columna J (Detalle)
+export const extraerBaseLimpiar = (textoDetalle: string): number => {
+  if (!textoDetalle) return 0;
+  const match = textoDetalle.match(/Base:\s*([\d\.,]+)/i);
+  if (!match || !match[1]) return 0;
+
+  let strVal = match[1].trim();
+
+  // Formato es-CO (ej: 16956196,97 o 2.905.857,14)
+  if (/,\d{1,2}$/.test(strVal)) {
+    strVal = strVal.replace(/\./g, '').replace(',', '.');
+  } else {
+    // Formato en-US (ej: 48,600,000.00)
+    strVal = strVal.replace(/,/g, '');
+  }
+
+  const num = parseFloat(strVal);
+  return isNaN(num) ? 0 : num;
+};

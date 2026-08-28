@@ -244,3 +244,80 @@ export default function Home() {
     </div>
   );
 }
+'use client';
+
+import { useState } from 'react';
+import { Layers, ArrowRightLeft, FileSpreadsheet, Calculator } from 'lucide-react';
+import ConciliationResults from '../components/ConciliationResults';
+import ConsolidadorFinanciero from '../components/ConsolidadorFinanciero';
+import RetencionFuente from '../components/RetencionFuente';
+
+export default function Home() {
+  // Pestañas disponibles: 'conciliacion' | 'consolidador' | 'retencion'
+  const [tabActiva, setTabActiva] = useState<'conciliacion' | 'consolidador' | 'retencion'>('conciliacion');
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-8">
+      <header className="max-w-7xl mx-auto mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+            <Layers className="w-8 h-8 text-indigo-600" />
+            Portal Financiero y Contable
+          </h1>
+          <p className="text-slate-500 mt-1">
+            Plataforma unificada para conciliación bancaria, estados financieros y retenciones.
+          </p>
+        </div>
+
+        {/* BARRA DE NAVEGACIÓN PRINCIPAL */}
+        <div className="flex bg-slate-200 p-1.5 rounded-2xl gap-1">
+          <button
+            onClick={() => setTabActiva('conciliacion')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              tabActiva === 'conciliacion'
+                ? 'bg-white text-indigo-700 shadow-md'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ArrowRightLeft className="w-4 h-4" /> Conciliación Bancaria
+          </button>
+
+          <button
+            onClick={() => setTabActiva('consolidador')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              tabActiva === 'consolidador'
+                ? 'bg-white text-indigo-700 shadow-md'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4" /> Consolidador Financiero
+          </button>
+
+          {/* NUEVA PESTAÑA INDEPENDIENTE */}
+          <button
+            onClick={() => setTabActiva('retencion')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              tabActiva === 'retencion'
+                ? 'bg-white text-indigo-700 shadow-md'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Calculator className="w-4 h-4" /> Retención en la Fuente
+          </button>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto space-y-8">
+        {tabActiva === 'conciliacion' ? (
+          /* Render Conciliación Bancaria */
+          <div>...</div>
+        ) : tabActiva === 'consolidador' ? (
+          <ConsolidadorFinanciero />
+        ) : (
+          /* Módulo Autónomo de Retención */
+          <RetencionFuente />
+        )}
+      </main>
+    </div>
+  );
+}
