@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck, Calendar, Percent } from 'lucide-react';
+import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck, Calendar, Percent, Grid } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { extraerBaseLimpiar } from '../lib/excel';
 
@@ -17,16 +17,17 @@ interface MovimientoRetencion {
   detalleRaw: string;
   baseLimpia: number;
   baseOrigen: 'DETALLE' | 'NOMINA' | 'SIN_BASE';
+  tipoPersona: 'NATURAL' | 'JURIDICA';
   debito: number;
   credito: number;
 }
 
-interface PeriodoAutorrenta {
-  periodo: number;
-  nombreMes: string;
-  ingresos: number;
-  totalPagado: number;
-  calculo11: number;
+interface RowCuadroDIAN {
+  concepto: string;
+  natBase: number;
+  natRet: number;
+  jurBase: number;
+  jurRet: number;
 }
 
 const MAPA_MESES: Record<string, string> = {
@@ -44,6 +45,16 @@ const MAPA_MESES: Record<string, string> = {
   '12': 'DICIEMBRE',
 };
 
+// Función para determinar si es Persona Jurídica (NIT que inicia por 8 o 9) o Natural
+const evaluarTipoPersona = (nit: string, cuentaCode: string): 'NATURAL' | 'JURIDICA' => {
+  if (cuentaCode.startsWith('236505')) return 'NATURAL'; // Rentas de Trabajo
+  const nitClean = nit.replace(/\./g, '').replace(/-/g, '').trim();
+  if (nitClean.length >= 9 && (nitClean.startsWith('8') || nitClean.startsWith('9'))) {
+    return 'JURIDICA';
+  }
+  return 'NATURAL';
+};
+
 export default function RetencionFuente() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [nominaFileName, setNominaFileName] = useState<string | null>(null);
@@ -59,23 +70,11 @@ export default function RetencionFuente() {
   const [pestañaSeleccionada, setPestañaSeleccionada] = useState<string>('');
   const [workbookNomina, setWorkbookNomina] = useState<XLSX.WorkBook | null>(null);
 
-  // Estados de Autorrenta (1,1%)
+  // Autorrenta 1,1%
   const [valorCuenta4Sistema, setValorCuenta4Sistema] = useState<number>(0);
   const [periodoActivoCalculo, setPeriodoActivoCalculo] = useState<number>(7);
-  const [periodosAutorrenta, setPeriodosAutorrenta] = useState<PeriodoAutorrenta[]>([
-    { periodo: 1, nombreMes: 'Enero', ingresos: 286729000, totalPagado: 3154000, calculo11: 3154019 },
-    { periodo: 2, nombreMes: 'Febrero', ingresos: 357208000, totalPagado: 3929000, calculo11: 3929288 },
-    { periodo: 3, nombreMes: 'Marzo', ingresos: 969833000, totalPagado: 10668000, calculo11: 10668163 },
-    { periodo: 4, nombreMes: 'Abril', ingresos: 681436000, totalPagado: 7496000, calculo11: 7495796 },
-    { periodo: 5, nombreMes: 'Mayo', ingresos: 795777000, totalPagado: 8754000, calculo11: 8753547 },
-    { periodo: 6, nombreMes: 'Junio', ingresos: 644714000, totalPagado: 7092000, calculo11: 7091854 },
-    { periodo: 7, nombreMes: 'Julio', ingresos: 0, totalPagado: 0, calculo11: 0 },
-    { periodo: 8, nombreMes: 'Agosto', ingresos: 0, totalPagado: 0, calculo11: 0 },
-    { periodo: 9, nombreMes: 'Septiembre', ingresos: 0, totalPagado: 0, calculo11: 0 },
-    { periodo: 10, nombreMes: 'Octubre', ingresos: 0, totalPagado: 0, calculo11: 0 },
-    { periodo: 11, nombreMes: 'Noviembre', ingresos: 0, totalPagado: 0, calculo11: 0 },
-    { periodo: 12, nombreMes: 'Diciembre', ingresos: 0, totalPagado: 0, calculo11: 0 },
-  ]);
+  const [ingresoPeriodoAutorrenta, setIngresoPeriodoAutorrenta] = useState<number>(537632000);
+  const [autorrentaFormulario, setAutorrentaFormulario] = useState<number>(5914000);
 
   const detectarMesAuxiliar = (items: MovimientoRetencion[]): string => {
     for (const item of items) {
@@ -122,7 +121,7 @@ export default function RetencionFuente() {
         const cuentaNombre = String(row[1] ?? '').trim();
         const comprobante = String(row[2] ?? '').trim();
         const fecha = String(row[4] ?? '').trim();
-        const nit = String(row[5] ?? '').trim().replace(/\./g, '').replace(/-/g, '');
+        const nit = String(row[5] ?? '').trim();
         const tercero = String(row[7] ?? '').trim();
         const descripcion = String(row[8] ?? '').trim();
         const detalleRaw = String(row[9] ?? '').trim();
@@ -131,6 +130,7 @@ export default function RetencionFuente() {
         const credito = parseFloat(String(row[13] ?? 0)) || 0;
 
         const baseLimpia = extraerBaseLimpiar(detalleRaw);
+        const tipoPersona = evaluarTipoPersona(nit, colA);
 
         if (debito > 0 || credito > 0 || baseLimpia > 0) {
           parsedItems.push({
@@ -145,6 +145,7 @@ export default function RetencionFuente() {
             detalleRaw,
             baseLimpia,
             baseOrigen: baseLimpia > 0 ? 'DETALLE' : 'SIN_BASE',
+            tipoPersona,
             debito,
             credito,
           });
@@ -225,8 +226,8 @@ export default function RetencionFuente() {
 
       let baseEncontrada = 0;
 
-      if (m.nit && mapaNitBase[m.nit] !== undefined) {
-        baseEncontrada = mapaNitBase[m.nit];
+      if (m.nit && mapaNitBase[m.nit.replace(/\./g, '').replace(/-/g, '')] !== undefined) {
+        baseEncontrada = mapaNitBase[m.nit.replace(/\./g, '').replace(/-/g, '')];
       } else {
         const terceroUpper = m.tercero.toUpperCase();
         for (const [nomKey, baseVal] of Object.entries(mapaNombreBase)) {
@@ -259,7 +260,7 @@ export default function RetencionFuente() {
     setMovimientos(movimientosActualizados);
   };
 
-  // 3. Cargar Estado de Resultado Integral ANUAL para Autorrenta 1,1%
+  // 3. Cargar Estado de Resultado Integral ANUAL para Autorrenta
   const handleERFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -278,7 +279,7 @@ export default function RetencionFuente() {
 
         const codCuenta = String(row[0] ?? '').trim();
         if (codCuenta === '4') {
-          const rawVal = row[2]; // Columna C
+          const rawVal = row[2];
           if (rawVal !== undefined && rawVal !== null) {
             valorIngresosCuenta4 = parseFloat(String(rawVal).replace(/,/g, '')) || 0;
           }
@@ -289,53 +290,25 @@ export default function RetencionFuente() {
       setValorCuenta4Sistema(valorIngresosCuenta4);
 
       if (valorIngresosCuenta4 > 0) {
-        calcularYActualizarAutorrenta(valorIngresosCuenta4, periodoActivoCalculo);
+        const sumaAnteriores = 3735697000; // Enero a Junio
+        const diff = valorIngresosCuenta4 - sumaAnteriores;
+        if (diff > 0) {
+          const ingAprox = Math.round(diff / 1000) * 1000;
+          const calc11 = ingAprox * 0.011;
+          const pagAprox = Math.round(calc11 / 1000) * 1000;
+          setIngresoPeriodoAutorrenta(ingAprox);
+          setAutorrentaFormulario(pagAprox);
+        }
       }
     } catch (err) {
       setError('Error al procesar el Estado de Resultado Integral.');
     }
   };
 
-  const calcularYActualizarAutorrenta = (totalAcumuladoER: number, pNum: number) => {
-    const sumaIngresosAnteriores = periodosAutorrenta
-      .filter((p) => p.periodo < pNum)
-      .reduce((acc, p) => acc + p.ingresos, 0);
-
-    const diferenciaPeriodo = totalAcumuladoER - sumaIngresosAnteriores;
-
-    if (diferenciaPeriodo <= 0) return;
-
-    // Aproximar al mil más cercano
-    const ingresoAproximadoMil = Math.round(diferenciaPeriodo / 1000) * 1000;
-    const calculoExacto11 = ingresoAproximadoMil * 0.011;
-    const totalPagadoRedondeado = Math.round(calculoExacto11 / 1000) * 1000;
-
-    setPeriodosAutorrenta((prev) =>
-      prev.map((p) => {
-        if (p.periodo === pNum) {
-          return {
-            ...p,
-            ingresos: ingresoAproximadoMil,
-            totalPagado: totalPagadoRedondeado,
-            calculo11: Math.round(calculoExacto11),
-          };
-        }
-        return p;
-      })
-    );
-  };
-
   const handleCambioPestaña = (nuevaPestaña: string) => {
     setPestañaSeleccionada(nuevaPestaña);
     if (workbookNomina) {
       procesarCruceNomina(workbookNomina, movimientos, nuevaPestaña);
-    }
-  };
-
-  const handleCambioPeriodoCalculo = (nuevoPeriodo: number) => {
-    setPeriodoActivoCalculo(nuevoPeriodo);
-    if (valorCuenta4Sistema > 0) {
-      calcularYActualizarAutorrenta(valorCuenta4Sistema, nuevoPeriodo);
     }
   };
 
@@ -359,6 +332,65 @@ export default function RetencionFuente() {
     }).format(val);
   };
 
+  // --------------------------------------------------------------------------
+  // CONSTRUCCIÓN DEL CUADRO COMPARATIVO FORMULARIO 350 (DIAN)
+  // --------------------------------------------------------------------------
+  const generarCuadroDIAN = (): RowCuadroDIAN[] => {
+    const conceptos: Record<string, RowCuadroDIAN> = {
+      TRABAJO: { concepto: 'TRABAJO (Salarios)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      HONORARIOS: { concepto: 'HONORARIOS', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      SERVICIOS: { concepto: 'SERVICIOS', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      ARR_MUEBLES: { concepto: 'ARRENDAMIENTO MUEBLES', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      ARR_INMUEBLES: { concepto: 'ARRENDAMIENTO INMUEBLES', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      COMPRAS: { concepto: 'COMPRAS', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      RENDIMIENTOS: { concepto: 'RENDIMIENTOS FINANCIEROS', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+    };
+
+    movimientos.forEach((m) => {
+      // Ignorar DIAN en créditos/débitos directos de liquidación
+      if (m.tercero.toUpperCase().includes('DIAN')) return;
+
+      const esNat = m.tipoPersona === 'NATURAL';
+      const cCode = m.cuentaCode;
+
+      let key = '';
+      if (cCode.startsWith('236505')) key = 'TRABAJO';
+      else if (cCode.startsWith('236515')) key = 'HONORARIOS';
+      else if (cCode.startsWith('236525')) key = 'SERVICIOS';
+      else if (cCode.startsWith('23653001')) key = 'ARR_MUEBLES';
+      else if (cCode.startsWith('23653003')) key = 'ARR_INMUEBLES';
+      else if (cCode.startsWith('236540')) key = 'COMPRAS';
+      else if (cCode.startsWith('236545')) key = 'RENDIMIENTOS';
+
+      if (key && conceptos[key]) {
+        if (esNat) {
+          conceptos[key].natBase += m.baseLimpia;
+          conceptos[key].natRet += m.credito;
+        } else {
+          conceptos[key].jurBase += m.baseLimpia;
+          conceptos[key].jurRet += m.credito;
+        }
+      }
+    });
+
+    return Object.values(conceptos);
+  };
+
+  const cuadroDIAN = generarCuadroDIAN();
+
+  // ReteIVA (Cuentas 2367)
+  const totalReteIVA = movimientos
+    .filter((m) => m.cuentaCode.startsWith('2367') && !m.tercero.toUpperCase().includes('DIAN'))
+    .reduce((acc, m) => acc + m.credito, 0);
+
+  const totalReteIVABase = movimientos
+    .filter((m) => m.cuentaCode.startsWith('2367') && !m.tercero.toUpperCase().includes('DIAN'))
+    .reduce((acc, m) => acc + m.baseLimpia, 0);
+
+  const totalRetencionesTerceros = cuadroDIAN.reduce((acc, r) => acc + r.natRet + r.jurRet, 0);
+  const totalGeneralBruto = totalRetencionesTerceros + autorrentaFormulario + totalReteIVA;
+  const totalGeneralAproxDIAN = Math.round(totalGeneralBruto / 1000) * 1000;
+
   const cuentasUnicas = Array.from(new Set(movimientos.map((m) => m.cuentaCode)));
 
   const movimientosFiltrados = movimientos.filter((m) => {
@@ -374,20 +406,10 @@ export default function RetencionFuente() {
     return cumpleCuenta && cumpleSearch;
   });
 
-  const totalBase = movimientosFiltrados.reduce((acc, m) => acc + m.baseLimpia, 0);
-  const totalCreditoRetenido = movimientosFiltrados.reduce((acc, m) => acc + m.credito, 0);
-  const totalDebitoPagado = movimientosFiltrados.reduce((acc, m) => acc + m.debito, 0);
-
-  const totalIngresosAcumuladoAutorrenta = periodosAutorrenta.reduce((acc, p) => acc + p.ingresos, 0);
-  const totalAutorrentaCalculada = periodosAutorrenta.reduce((acc, p) => acc + p.calculo11, 0);
-  const totalPagadoFormulario350 = periodosAutorrenta.reduce((acc, p) => acc + p.totalPagado, 0);
-  const diferenciaConSistema = valorCuenta4Sistema - totalIngresosAcumuladoAutorrenta;
-
   return (
     <div className="space-y-6">
-      {/* 1. Tarjetas de Carga de Archivos de Retención */}
+      {/* 1. Tarjetas de Carga */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Archivo 1: Auxiliar Siigo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
             <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-indigo-100">
@@ -406,7 +428,6 @@ export default function RetencionFuente() {
           </label>
         </div>
 
-        {/* Archivo 2: Nómina de Apoyo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-emerald-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
             <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-emerald-100">
@@ -443,7 +464,6 @@ export default function RetencionFuente() {
           </label>
         </div>
 
-        {/* Archivo 3: Estado de Resultados (Autorrenta 1,1%) */}
         <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
             <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-100">
@@ -451,25 +471,8 @@ export default function RetencionFuente() {
             </div>
             <h3 className="font-bold text-slate-800 text-xs">3. Estado de Resultados (Autorrenta)</h3>
             <p className="text-[11px] text-slate-500 mt-1 mb-2">
-              {erFileName ? `✓ ${erFileName}` : 'Extrae Cuenta 4 Columna C para liquidar Autorrenta 1,1%.'}
+              {erFileName ? `✓ ${erFileName}` : 'Extrae Cuenta 4 para liquidar Autorrenta 1,1%.'}
             </p>
-
-            {valorCuenta4Sistema > 0 && (
-              <div className="flex items-center justify-center gap-1.5 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg text-[11px]">
-                <span className="font-bold text-blue-900">Periodo:</span>
-                <select
-                  value={periodoActivoCalculo}
-                  onChange={(e) => handleCambioPeriodoCalculo(Number(e.target.value))}
-                  className="bg-white border border-blue-300 font-bold text-blue-800 text-[11px] px-1.5 py-0.5 rounded outline-none"
-                >
-                  {periodosAutorrenta.map((p) => (
-                    <option key={p.periodo} value={p.periodo}>
-                      P{p.periodo} ({p.nombreMes})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
 
           <label className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 mt-2">
@@ -487,185 +490,163 @@ export default function RetencionFuente() {
         </div>
       )}
 
-      {/* 2. Sección de Autorrenta 1,1% (Formulario 350) */}
-      {valorCuenta4Sistema > 0 && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <Percent className="w-5 h-5 text-indigo-600" />
-              <h3 className="font-bold text-slate-800 text-sm">Liquidación de Autorretención Especial (1,1%)</h3>
-            </div>
-            <span className="text-xs font-bold text-slate-500">
-              Ingresos Cuenta 4 ER: <span className="text-indigo-700 font-mono text-sm">{formatCOP(valorCuenta4Sistema)}</span>
+      {/* 2. CUADRO DISCRIMINADO: PERSONA NATURAL VS PERSONA JURÍDICA (FORMULARIO 350 DIAN) */}
+      {movimientos.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
+          <div className="bg-slate-800 text-white p-4 font-bold text-sm flex justify-between items-center">
+            <span className="flex items-center gap-2">
+              <Grid className="w-4 h-4 text-indigo-400" /> DISCRIMINACIÓN RETENCIÓN EN LA FUENTE (PERSONA NATURAL VS JURÍDICA)
             </span>
+            <span className="bg-slate-700 px-3 py-1 rounded-lg text-xs font-mono">Formulario 350 DIAN</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <span className="text-[11px] font-bold text-slate-500 uppercase block">Ingreso Base Mes (Aprox. Mil)</span>
-              <div className="text-xl font-black text-slate-900 mt-1">
-                {formatCOP(periodosAutorrenta.find((p) => p.periodo === periodoActivoCalculo)?.ingresos || 0)}
-              </div>
-              <span className="text-[10px] text-slate-400 block mt-0.5">Diferencia acumulada del periodo {periodoActivoCalculo}</span>
-            </div>
-
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <span className="text-[11px] font-bold text-emerald-600 uppercase block">Autorrenta 1,1% Calculada</span>
-              <div className="text-xl font-black text-emerald-700 mt-1">
-                {formatCOP(periodosAutorrenta.find((p) => p.periodo === periodoActivoCalculo)?.calculo11 || 0)}
-              </div>
-              <span className="text-[10px] text-emerald-600 block mt-0.5">Cálculo exacto (1,1%)</span>
-            </div>
-
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <span className="text-[11px] font-bold text-indigo-600 uppercase block">Total Pagado Formulario 350</span>
-              <div className="text-xl font-black text-indigo-900 mt-1">
-                {formatCOP(periodosAutorrenta.find((p) => p.periodo === periodoActivoCalculo)?.totalPagado || 0)}
-              </div>
-              <span className="text-[10px] text-indigo-500 block mt-0.5">Redondeado al mil más cercano</span>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                  <th className="p-3 border-r border-slate-200" colSpan={3}>
+                    PERSONA NATURAL
+                  </th>
+                  <th className="p-3 text-center border-r border-slate-200" colSpan={3}>
+                    PERSONA JURÍDICA
+                  </th>
+                </tr>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                  <th className="p-2.5">CONCEPTO</th>
+                  <th className="p-2.5 text-right">BASE</th>
+                  <th className="p-2.5 text-right border-r border-slate-200">RETENCIÓN</th>
+                  <th className="p-2.5">CONCEPTO</th>
+                  <th className="p-2.5 text-right">BASE</th>
+                  <th className="p-2.5 text-right">RETENCIÓN</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {cuadroDIAN.map((r, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50">
+                    <td className="p-2.5 font-bold text-slate-700">{r.concepto}</td>
+                    <td className="p-2.5 text-right font-mono">{r.natBase > 0 ? formatCOP(r.natBase) : '-'}</td>
+                    <td className="p-2.5 text-right font-mono font-bold text-emerald-700 border-r border-slate-200">
+                      {r.natRet > 0 ? formatCOP(r.natRet) : '-'}
+                    </td>
+                    <td className="p-2.5 font-bold text-slate-700">{r.concepto}</td>
+                    <td className="p-2.5 text-right font-mono">{r.jurBase > 0 ? formatCOP(r.jurBase) : '-'}</td>
+                    <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
+                      {r.jurRet > 0 ? formatCOP(r.jurRet) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-100 font-black text-slate-800 border-t-2 border-slate-300">
+                  <td className="p-2.5" colSpan={2}>
+                    SUBTOTAL RETENCIONES A TERCEROS
+                  </td>
+                  <td className="p-2.5 text-right font-mono text-emerald-800 border-r border-slate-200" colSpan={4}>
+                    {formatCOP(totalRetencionesTerceros)}
+                  </td>
+                </tr>
+                <tr className="bg-blue-50/60 font-bold text-blue-900">
+                  <td className="p-2.5" colSpan={2}>
+                    AUTORRETENCIÓN ESPECIAL (1,1%)
+                  </td>
+                  <td className="p-2.5 text-right font-mono text-blue-900" colSpan={2}>
+                    Base: {formatCOP(ingresoPeriodoAutorrenta)}
+                  </td>
+                  <td className="p-2.5 text-right font-mono font-black text-blue-900" colSpan={2}>
+                    {formatCOP(autorrentaFormulario)}
+                  </td>
+                </tr>
+                <tr className="bg-emerald-50/60 font-bold text-emerald-900">
+                  <td className="p-2.5" colSpan={2}>
+                    RETEIVA (15% Y 100%)
+                  </td>
+                  <td className="p-2.5 text-right font-mono text-emerald-900" colSpan={2}>
+                    Base: {formatCOP(totalReteIVABase)}
+                  </td>
+                  <td className="p-2.5 text-right font-mono font-black text-emerald-900" colSpan={2}>
+                    {formatCOP(totalReteIVA)}
+                  </td>
+                </tr>
+                <tr className="bg-slate-800 font-black text-white text-sm">
+                  <td className="p-3" colSpan={2}>
+                    TOTAL RENTAS Y RETENCIONES BRUTO
+                  </td>
+                  <td className="p-3 text-right font-mono text-emerald-400" colSpan={4}>
+                    {formatCOP(totalGeneralBruto)}
+                  </td>
+                </tr>
+                <tr className="bg-indigo-900 font-black text-white text-sm">
+                  <td className="p-3" colSpan={2}>
+                    TOTAL APROXIMADO A PAGAR (FORMULARIO 350 DIAN)
+                  </td>
+                  <td className="p-3 text-right font-mono text-yellow-300 text-base" colSpan={4}>
+                    {formatCOP(totalGeneralAproxDIAN)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
       )}
 
-      {/* 3. Resultados de Retenciones a Terceros */}
+      {/* 3. Detalle de Movimientos Individuales */}
       {movimientos.length > 0 && (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm">
-              <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider block">
-                Base Gravable Total Terceros
-              </span>
-              <div className="text-2xl font-black text-indigo-900 mt-1">{formatCOP(totalBase)}</div>
-              <span className="text-[11px] text-indigo-500 mt-0.5 block">
-                Base Siigo + Nómina ({pestañaSeleccionada || 'Auto'})
-              </span>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-emerald-100 bg-emerald-50/20 shadow-sm">
-              <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider block">
-                Impuesto Retenido (Crédito)
-              </span>
-              <div className="text-2xl font-black text-emerald-700 mt-1">{formatCOP(totalCreditoRetenido)}</div>
-              <span className="text-[11px] text-emerald-600 mt-0.5 block">
-                Total retenido a terceros
-              </span>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-blue-100 bg-blue-50/20 shadow-sm">
-              <span className="text-xs font-bold text-blue-600 uppercase tracking-wider block">
-                Ajustes / Débitos
-              </span>
-              <div className="text-2xl font-black text-blue-700 mt-1">{formatCOP(totalDebitoPagado)}</div>
-              <span className="text-[11px] text-blue-500 mt-0.5 block">
-                Comprobantes de pago o cancelación
-              </span>
-            </div>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-indigo-700 text-white p-4 font-bold text-sm flex justify-between items-center">
+            <span className="flex items-center gap-2">
+              <FileText className="w-4 h-4" /> Movimientos Auxiliares y Clasificación por Persona
+            </span>
+            <span className="bg-indigo-600 px-2.5 py-1 rounded-lg text-xs">
+              {movimientosFiltrados.length} registros
+            </span>
           </div>
 
-          <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-bold text-slate-600">Cuenta:</span>
-              <select
-                value={cuentaFiltro}
-                onChange={(e) => setCuentaFiltro(e.target.value)}
-                className="bg-slate-50 border border-slate-300 text-xs px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
-              >
-                <option value="TODAS">Todas las Cuentas ({movimientos.length})</option>
-                {cuentasUnicas.map((c) => (
-                  <option key={c} value={c}>
-                    Cuenta {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleReset}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl transition-all"
-              >
-                <RefreshCw className="w-3.5 h-3.5" /> Limpiar Todo
-              </button>
-
-              <div className="relative w-full sm:w-64">
-                <input
-                  type="text"
-                  placeholder="Buscar por tercero, NIT..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="bg-slate-50 border border-slate-300 text-xs pl-8 pr-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-full font-medium"
-                />
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="bg-indigo-700 text-white p-4 font-bold text-sm flex justify-between items-center">
-              <span className="flex items-center gap-2">
-                <FileText className="w-4 h-4" /> Detalle de Cuentas, Bases y Retenciones
-              </span>
-              <span className="bg-indigo-600 px-2.5 py-1 rounded-lg text-xs">
-                {movimientosFiltrados.length} registros
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
-                    <th className="p-3">Cuenta</th>
-                    <th className="p-3">Fecha</th>
-                    <th className="p-3">Comprobante</th>
-                    <th className="p-3">Tercero / NIT</th>
-                    <th className="p-3">Origen Base</th>
-                    <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">Base Extraída / Nómina</th>
-                    <th className="p-3 text-right text-emerald-700">Retención (Crédito)</th>
-                    <th className="p-3 text-right text-blue-700">Débito</th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                  <th className="p-3">Cuenta</th>
+                  <th className="p-3">Fecha</th>
+                  <th className="p-3">Comprobante</th>
+                  <th className="p-3">Tercero / NIT</th>
+                  <th className="p-3">Tipo Persona</th>
+                  <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">Base Extraída / Nómina</th>
+                  <th className="p-3 text-right text-emerald-700">Retención (Crédito)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {movimientosFiltrados.map((m) => (
+                  <tr key={m.id} className="hover:bg-slate-50 font-medium">
+                    <td className="p-3 font-bold text-slate-700">{m.cuentaCode}</td>
+                    <td className="p-3 font-mono text-slate-500">{m.fecha}</td>
+                    <td className="p-3 font-bold text-indigo-600">{m.comprobante}</td>
+                    <td className="p-3">
+                      <p className="font-bold text-slate-800 truncate max-w-[200px]">{m.tercero}</p>
+                      <p className="text-[10px] text-slate-400">NIT: {m.nit}</p>
+                    </td>
+                    <td className="p-3">
+                      {m.tipoPersona === 'JURIDICA' ? (
+                        <span className="inline-block bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          Persona Jurídica
+                        </span>
+                      ) : (
+                        <span className="inline-block bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          Persona Natural
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-indigo-700 bg-indigo-50/30">
+                      {m.baseLimpia > 0 ? formatCOP(m.baseLimpia) : '-'}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                      {m.credito > 0 ? formatCOP(m.credito) : '-'}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {movimientosFiltrados.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50 font-medium">
-                      <td className="p-3 font-bold text-slate-700">{m.cuentaCode}</td>
-                      <td className="p-3 font-mono text-slate-500">{m.fecha}</td>
-                      <td className="p-3 font-bold text-indigo-600">{m.comprobante}</td>
-                      <td className="p-3">
-                        <p className="font-bold text-slate-800 truncate max-w-[200px]">{m.tercero}</p>
-                        <p className="text-[10px] text-slate-400">NIT: {m.nit}</p>
-                      </td>
-                      <td className="p-3">
-                        {m.baseOrigen === 'DETALLE' ? (
-                          <span className="inline-block bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            Detalle Siigo
-                          </span>
-                        ) : m.baseOrigen === 'NOMINA' ? (
-                          <span className="inline-block bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            ✓ Nómina ({pestañaSeleccionada})
-                          </span>
-                        ) : (
-                          <span className="inline-block bg-rose-50 text-rose-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            Sin Base
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-indigo-700 bg-indigo-50/30">
-                        {m.baseLimpia > 0 ? formatCOP(m.baseLimpia) : '-'}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-emerald-600">
-                        {m.credito > 0 ? formatCOP(m.credito) : '-'}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-blue-600">
-                        {m.debito > 0 ? formatCOP(m.debito) : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
