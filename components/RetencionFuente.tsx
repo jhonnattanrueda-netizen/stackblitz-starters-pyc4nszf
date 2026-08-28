@@ -45,9 +45,8 @@ const MAPA_MESES: Record<string, string> = {
   '12': 'DICIEMBRE',
 };
 
-// Determinar si es Persona Jurídica o Natural
 const evaluarTipoPersona = (nit: string, cuentaCode: string): 'NATURAL' | 'JURIDICA' => {
-  if (cuentaCode.startsWith('236505') || cuentaCode.startsWith('236506')) return 'NATURAL'; // Rentas de Trabajo
+  if (cuentaCode.startsWith('236505') || cuentaCode.startsWith('236506')) return 'NATURAL';
   const nitClean = nit.replace(/\./g, '').replace(/-/g, '').trim();
   if (nitClean.length >= 9 && (nitClean.startsWith('8') || nitClean.startsWith('9'))) {
     return 'JURIDICA';
@@ -70,11 +69,9 @@ export default function RetencionFuente() {
   const [pestañaSeleccionada, setPestañaSeleccionada] = useState<string>('');
   const [workbookNomina, setWorkbookNomina] = useState<XLSX.WorkBook | null>(null);
 
-  // Autorrenta 1,1%
+  // Estados de Autorrenta 1,1%
   const [valorCuenta4Sistema, setValorCuenta4Sistema] = useState<number>(0);
-  const [periodoActivoCalculo, setPeriodoActivoCalculo] = useState<number>(7);
-  const [ingresoPeriodoAutorrenta, setIngresoPeriodoAutorrenta] = useState<number>(537632000);
-  const [autorrentaFormulario, setAutorrentaFormulario] = useState<number>(5914000);
+  const [acumuladoAnteriorInput, setAcumuladoAnteriorInput] = useState<number>(3735697000); // Permite digitar libremente
 
   const detectarMesAuxiliar = (items: MovimientoRetencion[]): string => {
     for (const item of items) {
@@ -260,7 +257,7 @@ export default function RetencionFuente() {
     setMovimientos(movimientosActualizados);
   };
 
-  // 3. Cargar Estado de Resultado Integral ANUAL para Autorrenta
+  // 3. Cargar Estado de Resultado Integral ANUAL (Obtiene Código Cuenta 4 en Columna C)
   const handleERFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -288,18 +285,6 @@ export default function RetencionFuente() {
       }
 
       setValorCuenta4Sistema(valorIngresosCuenta4);
-
-      if (valorIngresosCuenta4 > 0) {
-        const sumaAnteriores = 3735697000; // Enero a Junio
-        const diff = valorIngresosCuenta4 - sumaAnteriores;
-        if (diff > 0) {
-          const ingAprox = Math.round(diff / 1000) * 1000;
-          const calc11 = ingAprox * 0.011;
-          const pagAprox = Math.round(calc11 / 1000) * 1000;
-          setIngresoPeriodoAutorrenta(ingAprox);
-          setAutorrentaFormulario(pagAprox);
-        }
-      }
     } catch (err) {
       setError('Error al procesar el Estado de Resultado Integral.');
     }
@@ -333,6 +318,14 @@ export default function RetencionFuente() {
   };
 
   // --------------------------------------------------------------------------
+  // CÁLCULO DINÁMICO DE AUTORRETENCIÓN (1,1%)
+  // --------------------------------------------------------------------------
+  const diferenciaBrutaAutorrenta = valorCuenta4Sistema - acumuladoAnteriorInput;
+  const baseAutorrentaAproxMil = diferenciaBrutaAutorrenta > 0 ? Math.round(diferenciaBrutaAutorrenta / 1000) * 1000 : 0;
+  const autorrentaCalculadaExacta = baseAutorrentaAproxMil * 0.011;
+  const autorrentaFormulario350 = Math.round(autorrentaCalculadaExacta / 1000) * 1000;
+
+  // --------------------------------------------------------------------------
   // CONSTRUCCIÓN DEL CUADRO COMPARATIVO FORMULARIO 350 (DIAN)
   // --------------------------------------------------------------------------
   const generarCuadroDIAN = (): RowCuadroDIAN[] => {
@@ -353,7 +346,6 @@ export default function RetencionFuente() {
       const cCode = m.cuentaCode;
 
       let key = '';
-      // Agrupa 236505 (Salarios) y 236506 (Servicios Personales)
       if (cCode.startsWith('236505') || cCode.startsWith('236506')) key = 'TRABAJO';
       else if (cCode.startsWith('236515')) key = 'HONORARIOS';
       else if (cCode.startsWith('236525')) key = 'SERVICIOS';
@@ -378,7 +370,7 @@ export default function RetencionFuente() {
 
   const cuadroDIAN = generarCuadroDIAN();
 
-  // Discriminación Individual de ReteIVA
+  // ReteIVA (Cuentas 2367)
   const reteIVA15 = movimientos.filter(
     (m) => m.cuentaCode === '23670101' && !m.tercero.toUpperCase().includes('DIAN')
   );
@@ -394,7 +386,7 @@ export default function RetencionFuente() {
 
   const totalRetencionesTerceros = cuadroDIAN.reduce((acc, r) => acc + r.natRet + r.jurRet, 0);
   const totalReteIVATotal = retReteIVA15 + retReteIVA100;
-  const totalGeneralBruto = totalRetencionesTerceros + autorrentaFormulario + totalReteIVATotal;
+  const totalGeneralBruto = totalRetencionesTerceros + autorrentaFormulario350 + totalReteIVATotal;
   const totalGeneralAproxDIAN = Math.round(totalGeneralBruto / 1000) * 1000;
 
   const cuentasUnicas = Array.from(new Set(movimientos.map((m) => m.cuentaCode)));
@@ -416,6 +408,7 @@ export default function RetencionFuente() {
     <div className="space-y-6">
       {/* 1. Tarjetas de Carga */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Card 1: Auxiliar Siigo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
             <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-indigo-100">
@@ -434,6 +427,7 @@ export default function RetencionFuente() {
           </label>
         </div>
 
+        {/* Card 2: Nómina de Apoyo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-emerald-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
             <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-emerald-100">
@@ -470,18 +464,43 @@ export default function RetencionFuente() {
           </label>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-sm text-center flex flex-col items-center justify-between">
-          <div>
+        {/* Card 3: Estado de Resultados con Entrada Manual de Acumulado Anterior */}
+        <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-sm flex flex-col justify-between space-y-3">
+          <div className="text-center">
             <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-100">
               <Percent className="w-6 h-6" />
             </div>
             <h3 className="font-bold text-slate-800 text-xs">3. Estado de Resultados (Autorrenta)</h3>
-            <p className="text-[11px] text-slate-500 mt-1 mb-2">
-              {erFileName ? `✓ ${erFileName}` : 'Extrae Cuenta 4 para liquidar Autorrenta 1,1%.'}
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {erFileName ? `✓ ${erFileName}` : 'Carga ER para obtener Cuenta 4.'}
             </p>
           </div>
 
-          <label className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 mt-2">
+          {/* Formulario de Entrada de Acumulado Anterior e Ingresos Sistema */}
+          <div className="bg-blue-50/60 p-3 rounded-xl border border-blue-100 space-y-2 text-left text-[11px]">
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-slate-600">Sistema (Cuenta 4 ER):</span>
+              <span className="font-mono font-bold text-blue-900">{formatCOP(valorCuenta4Sistema)}</span>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block font-bold text-slate-700">Total Acumulado Anterior:</label>
+              <input
+                type="number"
+                value={acumuladoAnteriorInput}
+                onChange={(e) => setAcumuladoAnteriorInput(Number(e.target.value) || 0)}
+                placeholder="Ej: 3735697000"
+                className="w-full bg-white border border-blue-300 font-mono font-bold text-slate-800 px-2 py-1 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+              />
+            </div>
+
+            <div className="flex justify-between items-center pt-1 border-t border-blue-200/60">
+              <span className="font-bold text-slate-700">Base Aprox. al Mil:</span>
+              <span className="font-mono font-bold text-indigo-700">{formatCOP(baseAutorrentaAproxMil)}</span>
+            </div>
+          </div>
+
+          <label className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center justify-center gap-2">
             <FileSpreadsheet className="w-4 h-4" />
             {erFileName ? 'Cambiar Estado Resultados' : 'Cargar Estado Resultados'}
             <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleERFileUpload(e.target.files[0])} />
@@ -496,7 +515,7 @@ export default function RetencionFuente() {
         </div>
       )}
 
-      {/* 2. CUADRO DISCRIMINADO: PERSONA NATURAL VS PERSONA JURÍDICA */}
+      {/* 2. CUADRO DISCRIMINADO: PERSONA NATURAL VS PERSONA JURÍDICA (FORMULARIO 350 DIAN) */}
       {movimientos.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
           <div className="bg-slate-800 text-white p-4 font-bold text-sm flex justify-between items-center">
@@ -551,19 +570,21 @@ export default function RetencionFuente() {
                     {formatCOP(totalRetencionesTerceros)}
                   </td>
                 </tr>
-                <tr className="bg-blue-50/60 font-bold text-blue-900">
+
+                {/* FILA DINÁMICA DE AUTORRETENCIÓN ESPECIAL (1,1%) */}
+                <tr className="bg-blue-50/80 font-bold text-blue-900 border-b border-blue-200">
                   <td className="p-2.5" colSpan={2}>
                     AUTORRETENCIÓN ESPECIAL (1,1%)
                   </td>
                   <td className="p-2.5 text-right font-mono text-blue-900" colSpan={2}>
-                    Base: {formatCOP(ingresoPeriodoAutorrenta)}
+                    Base: {formatCOP(baseAutorrentaAproxMil)}
                   </td>
                   <td className="p-2.5 text-right font-mono font-black text-blue-900" colSpan={2}>
-                    {formatCOP(autorrentaFormulario)}
+                    {formatCOP(autorrentaFormulario350)}
                   </td>
                 </tr>
 
-                {/* FILA SEPARADA 1: ReteIVA 15% (Cuenta 23670101) */}
+                {/* ReteIVA 15% (Cuenta 23670101) */}
                 <tr className="bg-emerald-50/40 font-bold text-emerald-900">
                   <td className="p-2.5" colSpan={2}>
                     RETEIVA 15% (Cuenta 23670101)
@@ -576,7 +597,7 @@ export default function RetencionFuente() {
                   </td>
                 </tr>
 
-                {/* FILA SEPARADA 2: ReteIVA 100% (Cuenta 23670103) */}
+                {/* ReteIVA 100% (Cuenta 23670103) */}
                 <tr className="bg-emerald-50/70 font-bold text-emerald-900 border-b-2 border-slate-300">
                   <td className="p-2.5" colSpan={2}>
                     RETEIVA 100% (Cuenta 23670103)
