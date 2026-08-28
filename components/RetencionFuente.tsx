@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck, Calendar } from 'lucide-react';
+import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck, Calendar, Percent } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { extraerBaseLimpiar } from '../lib/excel';
 
@@ -21,7 +21,15 @@ interface MovimientoRetencion {
   credito: number;
 }
 
-const MESES_NOMBRES: Record<string, string> = {
+interface PeriodoAutorrenta {
+  periodo: number;
+  nombreMes: string;
+  ingresos: number;
+  totalPagado: number;
+  calculo11: number;
+}
+
+const MAPA_MESES: Record<string, string> = {
   '01': 'ENERO',
   '02': 'FEBRERO',
   '03': 'MARZO',
@@ -39,34 +47,50 @@ const MESES_NOMBRES: Record<string, string> = {
 export default function RetencionFuente() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [nominaFileName, setNominaFileName] = useState<string | null>(null);
-  
+  const [erFileName, setErFileName] = useState<string | null>(null);
+
   const [movimientos, setMovimientos] = useState<MovimientoRetencion[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [cuentaFiltro, setCuentaFiltro] = useState<string>('TODAS');
   const [error, setError] = useState<string | null>(null);
 
-  // Pestañas del libro de Nómina cargado
+  // Estados de Nómina
   const [pestañasNomina, setPestañasNomina] = useState<string[]>([]);
   const [pestañaSeleccionada, setPestañaSeleccionada] = useState<string>('');
   const [workbookNomina, setWorkbookNomina] = useState<XLSX.WorkBook | null>(null);
 
-  // Detectar automáticamente el mes predominante de los movimientos de Siigo
-  const obtenerMesDetectado = (items: MovimientoRetencion[]): string => {
+  // Estados de Autorrenta (1,1%)
+  const [valorCuenta4Sistema, setValorCuenta4Sistema] = useState<number>(0);
+  const [periodoActivoCalculo, setPeriodoActivoCalculo] = useState<number>(7);
+  const [periodosAutorrenta, setPeriodosAutorrenta] = useState<PeriodoAutorrenta[]>([
+    { periodo: 1, nombreMes: 'Enero', ingresos: 286729000, totalPagado: 3154000, calculo11: 3154019 },
+    { periodo: 2, nombreMes: 'Febrero', ingresos: 357208000, totalPagado: 3929000, calculo11: 3929288 },
+    { periodo: 3, nombreMes: 'Marzo', ingresos: 969833000, totalPagado: 10668000, calculo11: 10668163 },
+    { periodo: 4, nombreMes: 'Abril', ingresos: 681436000, totalPagado: 7496000, calculo11: 7495796 },
+    { periodo: 5, nombreMes: 'Mayo', ingresos: 795777000, totalPagado: 8754000, calculo11: 8753547 },
+    { periodo: 6, nombreMes: 'Junio', ingresos: 644714000, totalPagado: 7092000, calculo11: 7091854 },
+    { periodo: 7, nombreMes: 'Julio', ingresos: 0, totalPagado: 0, calculo11: 0 },
+    { periodo: 8, nombreMes: 'Agosto', ingresos: 0, totalPagado: 0, calculo11: 0 },
+    { periodo: 9, nombreMes: 'Septiembre', ingresos: 0, totalPagado: 0, calculo11: 0 },
+    { periodo: 10, nombreMes: 'Octubre', ingresos: 0, totalPagado: 0, calculo11: 0 },
+    { periodo: 11, nombreMes: 'Noviembre', ingresos: 0, totalPagado: 0, calculo11: 0 },
+    { periodo: 12, nombreMes: 'Diciembre', ingresos: 0, totalPagado: 0, calculo11: 0 },
+  ]);
+
+  const detectarMesAuxiliar = (items: MovimientoRetencion[]): string => {
     for (const item of items) {
       if (item.fecha && item.fecha.includes('/')) {
         const partes = item.fecha.split('/');
         if (partes.length >= 2) {
           const numMes = partes[1].padStart(2, '0');
-          if (MESES_NOMBRES[numMes]) {
-            return MESES_NOMBRES[numMes];
-          }
+          if (MAPA_MESES[numMes]) return MAPA_MESES[numMes];
         }
       }
     }
-    return 'JULIO'; // Fallback por defecto
+    return 'JULIO';
   };
 
-  // 1. Carga del Auxiliar Contable de Siigo
+  // 1. Cargar Auxiliar Contable Siigo
   const handleFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -129,17 +153,18 @@ export default function RetencionFuente() {
 
       setMovimientos(parsedItems);
 
-      // Si ya se había cargado un libro de nómina antes, re-ejecutar el cruce con el mes detectado
       if (workbookNomina) {
-        const mesSugerido = obtenerMesDetectado(parsedItems);
-        procesarCruceNomina(workbookNomina, parsedItems, mesSugerido);
+        const mesDetectado = detectarMesAuxiliar(parsedItems);
+        const targetSheet = workbookNomina.SheetNames.find((s) => s.toUpperCase().trim() === mesDetectado) || workbookNomina.SheetNames[0];
+        setPestañaSeleccionada(targetSheet);
+        procesarCruceNomina(workbookNomina, parsedItems, targetSheet);
       }
     } catch (err) {
       setError('Error al procesar el archivo auxiliar de Retención en la Fuente.');
     }
   };
 
-  // 2. Carga del Archivo de Nómina con Detección Estricta de Pestaña / Mes
+  // 2. Cargar Libro de Nómina de Apoyo
   const handleNominaUpload = async (file: File) => {
     try {
       if (movimientos.length === 0) {
@@ -155,17 +180,16 @@ export default function RetencionFuente() {
       setWorkbookNomina(wb);
       setPestañasNomina(wb.SheetNames);
 
-      const mesSugerido = obtenerMesDetectado(movimientos);
-      const targetSheet = wb.SheetNames.find((s) => s.toUpperCase().trim() === mesSugerido) || wb.SheetNames[0];
+      const mesDetectado = detectarMesAuxiliar(movimientos);
+      const targetSheet = wb.SheetNames.find((s) => s.toUpperCase().trim() === mesDetectado) || wb.SheetNames[0];
 
       setPestañaSeleccionada(targetSheet);
       procesarCruceNomina(wb, movimientos, targetSheet);
     } catch (err) {
-      setError('Error al leer el libro de Nómina.');
+      setError('Error al leer el archivo de Nómina.');
     }
   };
 
-  // Función Central de Cruce por Pestaña Específica
   const procesarCruceNomina = (wb: XLSX.WorkBook, itemsBase: MovimientoRetencion[], sheetName: string) => {
     const worksheet = wb.Sheets[sheetName];
     if (!worksheet) return;
@@ -180,7 +204,7 @@ export default function RetencionFuente() {
 
       const docNit = String(row[0] ?? '').trim().replace(/\./g, '').replace(/-/g, '');
       const nombreEmpleado = String(row[1] ?? '').trim().toUpperCase();
-      const rawBaseColN = row[13]; // Columna N (Total Devengado)
+      const rawBaseColN = row[13];
 
       let baseNum = 0;
       if (rawBaseColN !== undefined && rawBaseColN !== null && String(rawBaseColN) !== '#ERROR!') {
@@ -197,7 +221,6 @@ export default function RetencionFuente() {
     });
 
     const movimientosActualizados = itemsBase.map((m) => {
-      // Si la base venía explícita en el detalle de Siigo, la conserva
       if (m.baseOrigen === 'DETALLE') return m;
 
       let baseEncontrada = 0;
@@ -236,7 +259,72 @@ export default function RetencionFuente() {
     setMovimientos(movimientosActualizados);
   };
 
-  // Cambio manual de pestaña de nómina por el usuario
+  // 3. Cargar Estado de Resultado Integral ANUAL para Autorrenta 1,1%
+  const handleERFileUpload = async (file: File) => {
+    try {
+      setError(null);
+      setErFileName(file.name);
+
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
+
+      let valorIngresosCuenta4 = 0;
+
+      for (let i = 0; i < rawData.length; i++) {
+        const row = rawData[i];
+        if (!row || row.length < 3) continue;
+
+        const codCuenta = String(row[0] ?? '').trim();
+        if (codCuenta === '4') {
+          const rawVal = row[2]; // Columna C
+          if (rawVal !== undefined && rawVal !== null) {
+            valorIngresosCuenta4 = parseFloat(String(rawVal).replace(/,/g, '')) || 0;
+          }
+          break;
+        }
+      }
+
+      setValorCuenta4Sistema(valorIngresosCuenta4);
+
+      if (valorIngresosCuenta4 > 0) {
+        calcularYActualizarAutorrenta(valorIngresosCuenta4, periodoActivoCalculo);
+      }
+    } catch (err) {
+      setError('Error al procesar el Estado de Resultado Integral.');
+    }
+  };
+
+  const calcularYActualizarAutorrenta = (totalAcumuladoER: number, pNum: number) => {
+    const sumaIngresosAnteriores = periodosAutorrenta
+      .filter((p) => p.periodo < pNum)
+      .reduce((acc, p) => acc + p.ingresos, 0);
+
+    const diferenciaPeriodo = totalAcumuladoER - sumaIngresosAnteriores;
+
+    if (diferenciaPeriodo <= 0) return;
+
+    // Aproximar al mil más cercano
+    const ingresoAproximadoMil = Math.round(diferenciaPeriodo / 1000) * 1000;
+    const calculoExacto11 = ingresoAproximadoMil * 0.011;
+    const totalPagadoRedondeado = Math.round(calculoExacto11 / 1000) * 1000;
+
+    setPeriodosAutorrenta((prev) =>
+      prev.map((p) => {
+        if (p.periodo === pNum) {
+          return {
+            ...p,
+            ingresos: ingresoAproximadoMil,
+            totalPagado: totalPagadoRedondeado,
+            calculo11: Math.round(calculoExacto11),
+          };
+        }
+        return p;
+      })
+    );
+  };
+
   const handleCambioPestaña = (nuevaPestaña: string) => {
     setPestañaSeleccionada(nuevaPestaña);
     if (workbookNomina) {
@@ -244,13 +332,22 @@ export default function RetencionFuente() {
     }
   };
 
+  const handleCambioPeriodoCalculo = (nuevoPeriodo: number) => {
+    setPeriodoActivoCalculo(nuevoPeriodo);
+    if (valorCuenta4Sistema > 0) {
+      calcularYActualizarAutorrenta(valorCuenta4Sistema, nuevoPeriodo);
+    }
+  };
+
   const handleReset = () => {
     setMovimientos([]);
     setFileName(null);
     setNominaFileName(null);
+    setErFileName(null);
     setPestañasNomina([]);
     setPestañaSeleccionada('');
     setWorkbookNomina(null);
+    setValorCuenta4Sistema(0);
     setError(null);
   };
 
@@ -281,62 +378,57 @@ export default function RetencionFuente() {
   const totalCreditoRetenido = movimientosFiltrados.reduce((acc, m) => acc + m.credito, 0);
   const totalDebitoPagado = movimientosFiltrados.reduce((acc, m) => acc + m.debito, 0);
 
+  const totalIngresosAcumuladoAutorrenta = periodosAutorrenta.reduce((acc, p) => acc + p.ingresos, 0);
+  const totalAutorrentaCalculada = periodosAutorrenta.reduce((acc, p) => acc + p.calculo11, 0);
+  const totalPagadoFormulario350 = periodosAutorrenta.reduce((acc, p) => acc + p.totalPagado, 0);
+  const diferenciaConSistema = valorCuenta4Sistema - totalIngresosAcumuladoAutorrenta;
+
   return (
     <div className="space-y-6">
-      {/* Tarjetas de Carga */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* 1. Tarjetas de Carga de Archivos de Retención */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Archivo 1: Auxiliar Siigo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
-            <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-indigo-100">
-              <Calculator className="w-7 h-7" />
+            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-indigo-100">
+              <Calculator className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-slate-800 text-sm">1. Auxiliar de Retención Siigo (Excel)</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-4">
-              {fileName
-                ? `✓ ${fileName} (${movimientos.length} registros)`
-                : 'Sube el archivo Excel de cuentas 2365 / 2367 descargado de Siigo.'}
+            <h3 className="font-bold text-slate-800 text-xs">1. Auxiliar Retención Siigo</h3>
+            <p className="text-[11px] text-slate-500 mt-1 mb-3">
+              {fileName ? `✓ ${fileName}` : 'Sube el Excel de cuentas 2365 / 2367.'}
             </p>
           </div>
 
-          <label className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-5 py-2.5 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2">
+          <label className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4" />
-            {fileName ? 'Cambiar Auxiliar Siigo' : 'Cargar Auxiliar Siigo'}
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
-            />
+            {fileName ? 'Cambiar Auxiliar' : 'Cargar Auxiliar'}
+            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
           </label>
         </div>
 
-        {/* Archivo 2: Nómina con Selector de Mes / Pestaña */}
+        {/* Archivo 2: Nómina de Apoyo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-emerald-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
-            <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-emerald-100">
-              <UserCheck className="w-7 h-7" />
+            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-emerald-100">
+              <UserCheck className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-slate-800 text-sm">2. Archivo de Nómina de Apoyo (Opcional)</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-2">
-              {nominaFileName
-                ? `✓ ${nominaFileName}`
-                : 'Carga el libro de Nómina para extraer las bases de empleados.'}
+            <h3 className="font-bold text-slate-800 text-xs">2. Nómina de Apoyo</h3>
+            <p className="text-[11px] text-slate-500 mt-1 mb-2">
+              {nominaFileName ? `✓ ${nominaFileName}` : 'Carga la Nómina para extraer bases de empleados.'}
             </p>
 
-            {/* Selector manual de Pestaña del Libro */}
             {pestañasNomina.length > 0 && (
-              <div className="mt-2 flex items-center justify-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs">
-                <Calendar className="w-3.5 h-3.5 text-emerald-700" />
-                <span className="font-bold text-emerald-900">Mes Nómina:</span>
+              <div className="flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg text-[11px]">
+                <Calendar className="w-3 h-3 text-emerald-700" />
+                <span className="font-bold text-emerald-900">Mes:</span>
                 <select
                   value={pestañaSeleccionada}
                   onChange={(e) => handleCambioPestaña(e.target.value)}
-                  className="bg-white border border-emerald-300 font-bold text-emerald-800 text-xs px-2 py-1 rounded-lg outline-none cursor-pointer"
+                  className="bg-white border border-emerald-300 font-bold text-emerald-800 text-[11px] px-1.5 py-0.5 rounded outline-none"
                 >
                   {pestañasNomina.map((p) => (
                     <option key={p} value={p}>
-                      Pestaña: {p}
+                      {p}
                     </option>
                   ))}
                 </select>
@@ -344,22 +436,46 @@ export default function RetencionFuente() {
             )}
           </div>
 
-          <label
-            className={`text-white text-xs font-bold px-5 py-2.5 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 mt-3 ${
-              movimientos.length === 0
-                ? 'bg-slate-300 cursor-not-allowed'
-                : 'bg-emerald-600 hover:bg-emerald-700'
-            }`}
-          >
+          <label className={`text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 mt-2 ${movimientos.length === 0 ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
             <FileSpreadsheet className="w-4 h-4" />
-            {nominaFileName ? 'Cambiar Libro Nómina' : 'Cargar Nómina de Apoyo'}
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              disabled={movimientos.length === 0}
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleNominaUpload(e.target.files[0])}
-            />
+            {nominaFileName ? 'Cambiar Nómina' : 'Cargar Nómina'}
+            <input type="file" accept=".xlsx, .xls" disabled={movimientos.length === 0} className="hidden" onChange={(e) => e.target.files?.[0] && handleNominaUpload(e.target.files[0])} />
+          </label>
+        </div>
+
+        {/* Archivo 3: Estado de Resultados (Autorrenta 1,1%) */}
+        <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-sm text-center flex flex-col items-center justify-between">
+          <div>
+            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-100">
+              <Percent className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-slate-800 text-xs">3. Estado de Resultados (Autorrenta)</h3>
+            <p className="text-[11px] text-slate-500 mt-1 mb-2">
+              {erFileName ? `✓ ${erFileName}` : 'Extrae Cuenta 4 Columna C para liquidar Autorrenta 1,1%.'}
+            </p>
+
+            {valorCuenta4Sistema > 0 && (
+              <div className="flex items-center justify-center gap-1.5 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg text-[11px]">
+                <span className="font-bold text-blue-900">Periodo:</span>
+                <select
+                  value={periodoActivoCalculo}
+                  onChange={(e) => handleCambioPeriodoCalculo(Number(e.target.value))}
+                  className="bg-white border border-blue-300 font-bold text-blue-800 text-[11px] px-1.5 py-0.5 rounded outline-none"
+                >
+                  {periodosAutorrenta.map((p) => (
+                    <option key={p.periodo} value={p.periodo}>
+                      P{p.periodo} ({p.nombreMes})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          <label className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 mt-2">
+            <FileSpreadsheet className="w-4 h-4" />
+            {erFileName ? 'Cambiar Estado Resultados' : 'Cargar Estado Resultados'}
+            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleERFileUpload(e.target.files[0])} />
           </label>
         </div>
       </div>
@@ -371,18 +487,58 @@ export default function RetencionFuente() {
         </div>
       )}
 
-      {/* Resultados de la Auditoría */}
+      {/* 2. Sección de Autorrenta 1,1% (Formulario 350) */}
+      {valorCuenta4Sistema > 0 && (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <Percent className="w-5 h-5 text-indigo-600" />
+              <h3 className="font-bold text-slate-800 text-sm">Liquidación de Autorretención Especial (1,1%)</h3>
+            </div>
+            <span className="text-xs font-bold text-slate-500">
+              Ingresos Cuenta 4 ER: <span className="text-indigo-700 font-mono text-sm">{formatCOP(valorCuenta4Sistema)}</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <span className="text-[11px] font-bold text-slate-500 uppercase block">Ingreso Base Mes (Aprox. Mil)</span>
+              <div className="text-xl font-black text-slate-900 mt-1">
+                {formatCOP(periodosAutorrenta.find((p) => p.periodo === periodoActivoCalculo)?.ingresos || 0)}
+              </div>
+              <span className="text-[10px] text-slate-400 block mt-0.5">Diferencia acumulada del periodo {periodoActivoCalculo}</span>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <span className="text-[11px] font-bold text-emerald-600 uppercase block">Autorrenta 1,1% Calculada</span>
+              <div className="text-xl font-black text-emerald-700 mt-1">
+                {formatCOP(periodosAutorrenta.find((p) => p.periodo === periodoActivoCalculo)?.calculo11 || 0)}
+              </div>
+              <span className="text-[10px] text-emerald-600 block mt-0.5">Cálculo exacto (1,1%)</span>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <span className="text-[11px] font-bold text-indigo-600 uppercase block">Total Pagado Formulario 350</span>
+              <div className="text-xl font-black text-indigo-900 mt-1">
+                {formatCOP(periodosAutorrenta.find((p) => p.periodo === periodoActivoCalculo)?.totalPagado || 0)}
+              </div>
+              <span className="text-[10px] text-indigo-500 block mt-0.5">Redondeado al mil más cercano</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Resultados de Retenciones a Terceros */}
       {movimientos.length > 0 && (
         <>
-          {/* Tarjetas de Resumen Global */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm">
               <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider block">
-                Base Gravable Total
+                Base Gravable Total Terceros
               </span>
               <div className="text-2xl font-black text-indigo-900 mt-1">{formatCOP(totalBase)}</div>
               <span className="text-[11px] text-indigo-500 mt-0.5 block">
-                Base Detalle Siigo + Nómina ({pestañaSeleccionada || 'Auto'})
+                Base Siigo + Nómina ({pestañaSeleccionada || 'Auto'})
               </span>
             </div>
 
@@ -392,7 +548,7 @@ export default function RetencionFuente() {
               </span>
               <div className="text-2xl font-black text-emerald-700 mt-1">{formatCOP(totalCreditoRetenido)}</div>
               <span className="text-[11px] text-emerald-600 mt-0.5 block">
-                Total retenido en el periodo
+                Total retenido a terceros
               </span>
             </div>
 
@@ -407,7 +563,6 @@ export default function RetencionFuente() {
             </div>
           </div>
 
-          {/* Barra de Filtros */}
           <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-3">
             <div className="flex items-center gap-3">
               <span className="text-xs font-bold text-slate-600">Cuenta:</span>
@@ -446,7 +601,6 @@ export default function RetencionFuente() {
             </div>
           </div>
 
-          {/* Tabla de Resultados */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="bg-indigo-700 text-white p-4 font-bold text-sm flex justify-between items-center">
               <span className="flex items-center gap-2">
