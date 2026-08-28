@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload, FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw } from 'lucide-react';
+import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { extraerBaseLimpiar } from '../lib/excel';
 
@@ -66,7 +66,6 @@ export default function RetencionFuente() {
         const debito = parseFloat(String(row[12] ?? 0)) || 0;
         const credito = parseFloat(String(row[13] ?? 0)) || 0;
 
-        // Extraer de forma precisa el valor tras "Base:"
         const baseLimpia = extraerBaseLimpiar(detalleRaw);
 
         if (debito > 0 || credito > 0 || baseLimpia > 0) {
@@ -123,8 +122,8 @@ export default function RetencionFuente() {
   });
 
   const totalBase = movimientosFiltrados.reduce((acc, m) => acc + m.baseLimpia, 0);
-  const totalCredito = movimientosFiltrados.reduce((acc, m) => acc + m.credito, 0);
-  const totalDebito = movimientosFiltrados.reduce((acc, m) => acc + m.debito, 0);
+  const totalCreditoRetenido = movimientosFiltrados.reduce((acc, m) => acc + m.credito, 0);
+  const totalDebitoPagado = movimientosFiltrados.reduce((acc, m) => acc + m.debito, 0);
 
   return (
     <div className="space-y-6">
@@ -189,7 +188,7 @@ export default function RetencionFuente() {
               <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider block">
                 Impuesto Retenido (Crédito)
               </span>
-              <div className="text-2xl font-black text-emerald-700 mt-1">{formatCOP(totalCredito)}</div>
+              <div className="text-2xl font-black text-emerald-700 mt-1">{formatCOP(totalCreditoRetenido)}</div>
               <span className="text-[11px] text-emerald-600 mt-0.5 block">
                 Total retenido en el periodo
               </span>
@@ -199,7 +198,7 @@ export default function RetencionFuente() {
               <span className="text-xs font-bold text-blue-600 uppercase tracking-wider block">
                 Ajustes / Débitos
               </span>
-              <div className="text-2xl font-black text-blue-700 mt-1">{formatCOP(totalDebito)}</div>
+              <div className="text-2xl font-black text-blue-700 mt-1">{formatCOP(totalDebitoPagado)}</div>
               <span className="text-[11px] text-blue-500 mt-0.5 block">
                 Comprobantes de ajuste o pago
               </span>
