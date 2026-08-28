@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck } from 'lucide-react';
+import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { extraerBaseLimpiar } from '../lib/excel';
 
@@ -21,6 +21,21 @@ interface MovimientoRetencion {
   credito: number;
 }
 
+const MESES_NOMBRES: Record<string, string> = {
+  '01': 'ENERO',
+  '02': 'FEBRERO',
+  '03': 'MARZO',
+  '04': 'ABRIL',
+  '05': 'MAYO',
+  '06': 'JUNIO',
+  '07': 'JULIO',
+  '08': 'AGOSTO',
+  '09': 'SEPTIEMBRE',
+  '10': 'OCTUBRE',
+  '11': 'NOVIEMBRE',
+  '12': 'DICIEMBRE',
+};
+
 export default function RetencionFuente() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [nominaFileName, setNominaFileName] = useState<string | null>(null);
@@ -30,7 +45,28 @@ export default function RetencionFuente() {
   const [cuentaFiltro, setCuentaFiltro] = useState<string>('TODAS');
   const [error, setError] = useState<string | null>(null);
 
-  // 1. Carga del Auxiliar Contable de Siigo (Cuentas 2365 / 2367)
+  // Pestañas del libro de Nómina cargado
+  const [pestañasNomina, setPestañasNomina] = useState<string[]>([]);
+  const [pestañaSeleccionada, setPestañaSeleccionada] = useState<string>('');
+  const [workbookNomina, setWorkbookNomina] = useState<XLSX.WorkBook | null>(null);
+
+  // Detectar automáticamente el mes predominante de los movimientos de Siigo
+  const obtenerMesDetectado = (items: MovimientoRetencion[]): string => {
+    for (const item of items) {
+      if (item.fecha && item.fecha.includes('/')) {
+        const partes = item.fecha.split('/');
+        if (partes.length >= 2) {
+          const numMes = partes[1].padStart(2, '0');
+          if (MESES_NOMBRES[numMes]) {
+            return MESES_NOMBRES[numMes];
+          }
+        }
+      }
+    }
+    return 'JULIO'; // Fallback por defecto
+  };
+
+  // 1. Carga del Auxiliar Contable de Siigo
   const handleFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -92,12 +128,18 @@ export default function RetencionFuente() {
       });
 
       setMovimientos(parsedItems);
+
+      // Si ya se había cargado un libro de nómina antes, re-ejecutar el cruce con el mes detectado
+      if (workbookNomina) {
+        const mesSugerido = obtenerMesDetectado(parsedItems);
+        procesarCruceNomina(workbookNomina, parsedItems, mesSugerido);
+      }
     } catch (err) {
       setError('Error al procesar el archivo auxiliar de Retención en la Fuente.');
     }
   };
 
-  // 2. Carga del Archivo de Nómina de Apoyo (Para cruzar la Columna N con los empleados)
+  // 2. Carga del Archivo de Nómina con Detección Estricta de Pestaña / Mes
   const handleNominaUpload = async (file: File) => {
     try {
       if (movimientos.length === 0) {
@@ -109,80 +151,96 @@ export default function RetencionFuente() {
       setNominaFileName(file.name);
 
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
-      
-      // Buscar la hoja de nómina relevante o tomar la activa
-      const sheetName = workbook.SheetNames.find((s) => 
-        ['JULIO', 'AGOSTO', 'JUNIO', 'MAYO', 'ABRIL', 'MARZO', 'FEBRERO', 'ENERO'].includes(s.toUpperCase())
-      ) || workbook.SheetNames[0];
+      const wb = XLSX.read(buffer, { type: 'array' });
+      setWorkbookNomina(wb);
+      setPestañasNomina(wb.SheetNames);
 
-      const worksheet = workbook.Sheets[sheetName];
-      const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
+      const mesSugerido = obtenerMesDetectado(movimientos);
+      const targetSheet = wb.SheetNames.find((s) => s.toUpperCase().trim() === mesSugerido) || wb.SheetNames[0];
 
-      // Mapeos de búsqueda en Nómina
-      const mapaNitBase: Record<string, number> = {};
-      const mapaNombreBase: Record<string, number> = {};
+      setPestañaSeleccionada(targetSheet);
+      procesarCruceNomina(wb, movimientos, targetSheet);
+    } catch (err) {
+      setError('Error al leer el libro de Nómina.');
+    }
+  };
 
-      rawData.forEach((row) => {
-        if (!row || row.length < 14) return;
+  // Función Central de Cruce por Pestaña Específica
+  const procesarCruceNomina = (wb: XLSX.WorkBook, itemsBase: MovimientoRetencion[], sheetName: string) => {
+    const worksheet = wb.Sheets[sheetName];
+    if (!worksheet) return;
 
-        // Documento en Columna A (0), Nombre en Columna B (1), Total Devengado en Columna N (13)
-        const docNit = String(row[0] ?? '').trim().replace(/\./g, '').replace(/-/g, '');
-        const nombreEmpleado = String(row[1] ?? '').trim().toUpperCase();
-        const rawBaseColN = row[13];
+    const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
 
-        let baseNum = 0;
-        if (rawBaseColN !== undefined && rawBaseColN !== null && String(rawBaseColN) !== '#ERROR!') {
-          baseNum = parseFloat(String(rawBaseColN).replace(/,/g, '')) || 0;
-        }
+    const mapaNitBase: Record<string, number> = {};
+    const mapaNombreBase: Record<string, number> = {};
 
-        if (docNit && docNit.length >= 5 && !isNaN(Number(docNit))) {
-          mapaNitBase[docNit] = baseNum;
-        }
+    rawData.forEach((row) => {
+      if (!row || row.length < 14) return;
 
-        if (nombreEmpleado && nombreEmpleado.length > 3) {
-          mapaNombreBase[nombreEmpleado] = baseNum;
-        }
-      });
+      const docNit = String(row[0] ?? '').trim().replace(/\./g, '').replace(/-/g, '');
+      const nombreEmpleado = String(row[1] ?? '').trim().toUpperCase();
+      const rawBaseColN = row[13]; // Columna N (Total Devengado)
 
-      // Cruzar con los movimientos de Siigo que no tenían base en el detalle
-      const movimientosActualizados = movimientos.map((m) => {
-        if (m.baseLimpia > 0) return m; // Ya tenía base extraída del detalle
+      let baseNum = 0;
+      if (rawBaseColN !== undefined && rawBaseColN !== null && String(rawBaseColN) !== '#ERROR!') {
+        baseNum = parseFloat(String(rawBaseColN).replace(/,/g, '')) || 0;
+      }
 
-        let baseEncontrada = 0;
+      if (docNit && docNit.length >= 5 && !isNaN(Number(docNit))) {
+        mapaNitBase[docNit] = baseNum;
+      }
 
-        // Búsqueda 1: Por NIT / Documento exacto
-        if (m.nit && mapaNitBase[m.nit] !== undefined) {
-          baseEncontrada = mapaNitBase[m.nit];
-        } else {
-          // Búsqueda 2: Por similitud de Nombre
-          const terceroUpper = m.tercero.toUpperCase();
-          for (const [nomKey, baseVal] of Object.entries(mapaNombreBase)) {
-            const tokensSiigo = terceroUpper.split(' ').filter((t) => t.length > 2);
-            const tokensNomina = nomKey.split(' ').filter((t) => t.length > 2);
-            const coincidencias = tokensSiigo.filter((t) => tokensNomina.includes(t));
+      if (nombreEmpleado && nombreEmpleado.length > 3) {
+        mapaNombreBase[nombreEmpleado] = baseNum;
+      }
+    });
 
-            if (coincidencias.length >= 2) {
-              baseEncontrada = baseVal;
-              break;
-            }
+    const movimientosActualizados = itemsBase.map((m) => {
+      // Si la base venía explícita en el detalle de Siigo, la conserva
+      if (m.baseOrigen === 'DETALLE') return m;
+
+      let baseEncontrada = 0;
+
+      if (m.nit && mapaNitBase[m.nit] !== undefined) {
+        baseEncontrada = mapaNitBase[m.nit];
+      } else {
+        const terceroUpper = m.tercero.toUpperCase();
+        for (const [nomKey, baseVal] of Object.entries(mapaNombreBase)) {
+          const tokensSiigo = terceroUpper.split(' ').filter((t) => t.length > 2);
+          const tokensNomina = nomKey.split(' ').filter((t) => t.length > 2);
+          const coincidencias = tokensSiigo.filter((t) => tokensNomina.includes(t));
+
+          if (coincidencias.length >= 2) {
+            baseEncontrada = baseVal;
+            break;
           }
         }
+      }
 
-        if (baseEncontrada > 0) {
-          return {
-            ...m,
-            baseLimpia: baseEncontrada,
-            baseOrigen: 'NOMINA' as const,
-          };
-        }
+      if (baseEncontrada > 0) {
+        return {
+          ...m,
+          baseLimpia: baseEncontrada,
+          baseOrigen: 'NOMINA' as const,
+        };
+      }
 
-        return m;
-      });
+      return {
+        ...m,
+        baseLimpia: 0,
+        baseOrigen: 'SIN_BASE' as const,
+      };
+    });
 
-      setMovimientos(movimientosActualizados);
-    } catch (err) {
-      setError('Error al cruzar las bases desde el archivo de Nómina.');
+    setMovimientos(movimientosActualizados);
+  };
+
+  // Cambio manual de pestaña de nómina por el usuario
+  const handleCambioPestaña = (nuevaPestaña: string) => {
+    setPestañaSeleccionada(nuevaPestaña);
+    if (workbookNomina) {
+      procesarCruceNomina(workbookNomina, movimientos, nuevaPestaña);
     }
   };
 
@@ -190,6 +248,9 @@ export default function RetencionFuente() {
     setMovimientos([]);
     setFileName(null);
     setNominaFileName(null);
+    setPestañasNomina([]);
+    setPestañaSeleccionada('');
+    setWorkbookNomina(null);
     setError(null);
   };
 
@@ -222,7 +283,7 @@ export default function RetencionFuente() {
 
   return (
     <div className="space-y-6">
-      {/* Tarjetas de Carga Independiente */}
+      {/* Tarjetas de Carga */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Archivo 1: Auxiliar Siigo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
@@ -250,29 +311,48 @@ export default function RetencionFuente() {
           </label>
         </div>
 
-        {/* Archivo 2: Nómina de Apoyo (Para completar bases vacías de Nómina) */}
+        {/* Archivo 2: Nómina con Selector de Mes / Pestaña */}
         <div className="bg-white p-6 rounded-2xl border-2 border-emerald-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
             <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-emerald-100">
               <UserCheck className="w-7 h-7" />
             </div>
             <h3 className="font-bold text-slate-800 text-sm">2. Archivo de Nómina de Apoyo (Opcional)</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-4">
+            <p className="text-xs text-slate-500 mt-1 mb-2">
               {nominaFileName
-                ? `✓ ${nominaFileName} (Bases cruzadas)`
-                : 'Carga la Nómina para obtener la base Columna N de los empleados.'}
+                ? `✓ ${nominaFileName}`
+                : 'Carga el libro de Nómina para extraer las bases de empleados.'}
             </p>
+
+            {/* Selector manual de Pestaña del Libro */}
+            {pestañasNomina.length > 0 && (
+              <div className="mt-2 flex items-center justify-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs">
+                <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                <span className="font-bold text-emerald-900">Mes Nómina:</span>
+                <select
+                  value={pestañaSeleccionada}
+                  onChange={(e) => handleCambioPestaña(e.target.value)}
+                  className="bg-white border border-emerald-300 font-bold text-emerald-800 text-xs px-2 py-1 rounded-lg outline-none cursor-pointer"
+                >
+                  {pestañasNomina.map((p) => (
+                    <option key={p} value={p}>
+                      Pestaña: {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <label
-            className={`text-white text-xs font-bold px-5 py-2.5 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 ${
+            className={`text-white text-xs font-bold px-5 py-2.5 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 mt-3 ${
               movimientos.length === 0
                 ? 'bg-slate-300 cursor-not-allowed'
                 : 'bg-emerald-600 hover:bg-emerald-700'
             }`}
           >
             <FileSpreadsheet className="w-4 h-4" />
-            {nominaFileName ? 'Cambiar Archivo Nómina' : 'Cargar Nómina de Apoyo'}
+            {nominaFileName ? 'Cambiar Libro Nómina' : 'Cargar Nómina de Apoyo'}
             <input
               type="file"
               accept=".xlsx, .xls"
@@ -291,7 +371,7 @@ export default function RetencionFuente() {
         </div>
       )}
 
-      {/* Tabla y Totales de Retención */}
+      {/* Resultados de la Auditoría */}
       {movimientos.length > 0 && (
         <>
           {/* Tarjetas de Resumen Global */}
@@ -302,7 +382,7 @@ export default function RetencionFuente() {
               </span>
               <div className="text-2xl font-black text-indigo-900 mt-1">{formatCOP(totalBase)}</div>
               <span className="text-[11px] text-indigo-500 mt-0.5 block">
-                Base extraída del Detalle + Cruzada de Nómina
+                Base Detalle Siigo + Nómina ({pestañaSeleccionada || 'Auto'})
               </span>
             </div>
 
@@ -312,7 +392,7 @@ export default function RetencionFuente() {
               </span>
               <div className="text-2xl font-black text-emerald-700 mt-1">{formatCOP(totalCreditoRetenido)}</div>
               <span className="text-[11px] text-emerald-600 mt-0.5 block">
-                Total retenido a terceros
+                Total retenido en el periodo
               </span>
             </div>
 
@@ -330,7 +410,7 @@ export default function RetencionFuente() {
           {/* Barra de Filtros */}
           <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-3">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-bold text-slate-600">Filtrar Cuenta:</span>
+              <span className="text-xs font-bold text-slate-600">Cuenta:</span>
               <select
                 value={cuentaFiltro}
                 onChange={(e) => setCuentaFiltro(e.target.value)}
@@ -408,7 +488,7 @@ export default function RetencionFuente() {
                           </span>
                         ) : m.baseOrigen === 'NOMINA' ? (
                           <span className="inline-block bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            ✓ Cruzado Nómina
+                            ✓ Nómina ({pestañaSeleccionada})
                           </span>
                         ) : (
                           <span className="inline-block bg-rose-50 text-rose-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
