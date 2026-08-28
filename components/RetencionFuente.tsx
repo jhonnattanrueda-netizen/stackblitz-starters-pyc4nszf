@@ -45,9 +45,9 @@ const MAPA_MESES: Record<string, string> = {
   '12': 'DICIEMBRE',
 };
 
-// Función para determinar si es Persona Jurídica (NIT que inicia por 8 o 9) o Natural
+// Determinar si es Persona Jurídica o Natural
 const evaluarTipoPersona = (nit: string, cuentaCode: string): 'NATURAL' | 'JURIDICA' => {
-  if (cuentaCode.startsWith('236505')) return 'NATURAL'; // Rentas de Trabajo
+  if (cuentaCode.startsWith('236505') || cuentaCode.startsWith('236506')) return 'NATURAL'; // Rentas de Trabajo
   const nitClean = nit.replace(/\./g, '').replace(/-/g, '').trim();
   if (nitClean.length >= 9 && (nitClean.startsWith('8') || nitClean.startsWith('9'))) {
     return 'JURIDICA';
@@ -337,24 +337,24 @@ export default function RetencionFuente() {
   // --------------------------------------------------------------------------
   const generarCuadroDIAN = (): RowCuadroDIAN[] => {
     const conceptos: Record<string, RowCuadroDIAN> = {
-      TRABAJO: { concepto: 'TRABAJO (Salarios)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      HONORARIOS: { concepto: 'HONORARIOS', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      SERVICIOS: { concepto: 'SERVICIOS', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      ARR_MUEBLES: { concepto: 'ARRENDAMIENTO MUEBLES', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      ARR_INMUEBLES: { concepto: 'ARRENDAMIENTO INMUEBLES', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      COMPRAS: { concepto: 'COMPRAS', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      RENDIMIENTOS: { concepto: 'RENDIMIENTOS FINANCIEROS', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      TRABAJO: { concepto: 'TRABAJO (236505 y 236506)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      HONORARIOS: { concepto: 'HONORARIOS (236515)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      SERVICIOS: { concepto: 'SERVICIOS (236525)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      ARR_MUEBLES: { concepto: 'ARRENDAMIENTO MUEBLES (23653001)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      ARR_INMUEBLES: { concepto: 'ARRENDAMIENTO INMUEBLES (23653003)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      COMPRAS: { concepto: 'COMPRAS (236540)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      RENDIMIENTOS: { concepto: 'RENDIMIENTOS FINANCIEROS (236545)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
     };
 
     movimientos.forEach((m) => {
-      // Ignorar DIAN en créditos/débitos directos de liquidación
       if (m.tercero.toUpperCase().includes('DIAN')) return;
 
       const esNat = m.tipoPersona === 'NATURAL';
       const cCode = m.cuentaCode;
 
       let key = '';
-      if (cCode.startsWith('236505')) key = 'TRABAJO';
+      // Agrupa 236505 (Salarios) y 236506 (Servicios Personales)
+      if (cCode.startsWith('236505') || cCode.startsWith('236506')) key = 'TRABAJO';
       else if (cCode.startsWith('236515')) key = 'HONORARIOS';
       else if (cCode.startsWith('236525')) key = 'SERVICIOS';
       else if (cCode.startsWith('23653001')) key = 'ARR_MUEBLES';
@@ -378,17 +378,23 @@ export default function RetencionFuente() {
 
   const cuadroDIAN = generarCuadroDIAN();
 
-  // ReteIVA (Cuentas 2367)
-  const totalReteIVA = movimientos
-    .filter((m) => m.cuentaCode.startsWith('2367') && !m.tercero.toUpperCase().includes('DIAN'))
-    .reduce((acc, m) => acc + m.credito, 0);
+  // Discriminación Individual de ReteIVA
+  const reteIVA15 = movimientos.filter(
+    (m) => m.cuentaCode === '23670101' && !m.tercero.toUpperCase().includes('DIAN')
+  );
+  const reteIVA100 = movimientos.filter(
+    (m) => m.cuentaCode === '23670103' && !m.tercero.toUpperCase().includes('DIAN')
+  );
 
-  const totalReteIVABase = movimientos
-    .filter((m) => m.cuentaCode.startsWith('2367') && !m.tercero.toUpperCase().includes('DIAN'))
-    .reduce((acc, m) => acc + m.baseLimpia, 0);
+  const baseReteIVA15 = reteIVA15.reduce((acc, m) => acc + m.baseLimpia, 0);
+  const retReteIVA15 = reteIVA15.reduce((acc, m) => acc + m.credito, 0);
+
+  const baseReteIVA100 = reteIVA100.reduce((acc, m) => acc + m.baseLimpia, 0);
+  const retReteIVA100 = reteIVA100.reduce((acc, m) => acc + m.credito, 0);
 
   const totalRetencionesTerceros = cuadroDIAN.reduce((acc, r) => acc + r.natRet + r.jurRet, 0);
-  const totalGeneralBruto = totalRetencionesTerceros + autorrentaFormulario + totalReteIVA;
+  const totalReteIVATotal = retReteIVA15 + retReteIVA100;
+  const totalGeneralBruto = totalRetencionesTerceros + autorrentaFormulario + totalReteIVATotal;
   const totalGeneralAproxDIAN = Math.round(totalGeneralBruto / 1000) * 1000;
 
   const cuentasUnicas = Array.from(new Set(movimientos.map((m) => m.cuentaCode)));
@@ -445,7 +451,7 @@ export default function RetencionFuente() {
                 <select
                   value={pestañaSeleccionada}
                   onChange={(e) => handleCambioPestaña(e.target.value)}
-                  className="bg-white border border-emerald-300 font-bold text-emerald-800 text-[11px] px-1.5 py-0.5 rounded outline-none"
+                  className="bg-white border border-emerald-300 font-bold text-emerald-800 text-[11px] px-1.5 py-0.5 rounded outline-none cursor-pointer"
                 >
                   {pestañasNomina.map((p) => (
                     <option key={p} value={p}>
@@ -490,7 +496,7 @@ export default function RetencionFuente() {
         </div>
       )}
 
-      {/* 2. CUADRO DISCRIMINADO: PERSONA NATURAL VS PERSONA JURÍDICA (FORMULARIO 350 DIAN) */}
+      {/* 2. CUADRO DISCRIMINADO: PERSONA NATURAL VS PERSONA JURÍDICA */}
       {movimientos.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
           <div className="bg-slate-800 text-white p-4 font-bold text-sm flex justify-between items-center">
@@ -556,17 +562,33 @@ export default function RetencionFuente() {
                     {formatCOP(autorrentaFormulario)}
                   </td>
                 </tr>
-                <tr className="bg-emerald-50/60 font-bold text-emerald-900">
+
+                {/* FILA SEPARADA 1: ReteIVA 15% (Cuenta 23670101) */}
+                <tr className="bg-emerald-50/40 font-bold text-emerald-900">
                   <td className="p-2.5" colSpan={2}>
-                    RETEIVA (15% Y 100%)
+                    RETEIVA 15% (Cuenta 23670101)
                   </td>
                   <td className="p-2.5 text-right font-mono text-emerald-900" colSpan={2}>
-                    Base: {formatCOP(totalReteIVABase)}
+                    Base: {formatCOP(baseReteIVA15)}
                   </td>
                   <td className="p-2.5 text-right font-mono font-black text-emerald-900" colSpan={2}>
-                    {formatCOP(totalReteIVA)}
+                    {formatCOP(retReteIVA15)}
                   </td>
                 </tr>
+
+                {/* FILA SEPARADA 2: ReteIVA 100% (Cuenta 23670103) */}
+                <tr className="bg-emerald-50/70 font-bold text-emerald-900 border-b-2 border-slate-300">
+                  <td className="p-2.5" colSpan={2}>
+                    RETEIVA 100% (Cuenta 23670103)
+                  </td>
+                  <td className="p-2.5 text-right font-mono text-emerald-900" colSpan={2}>
+                    Base: {formatCOP(baseReteIVA100)}
+                  </td>
+                  <td className="p-2.5 text-right font-mono font-black text-emerald-900" colSpan={2}>
+                    {formatCOP(retReteIVA100)}
+                  </td>
+                </tr>
+
                 <tr className="bg-slate-800 font-black text-white text-sm">
                   <td className="p-3" colSpan={2}>
                     TOTAL RENTAS Y RETENCIONES BRUTO
