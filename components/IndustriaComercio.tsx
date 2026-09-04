@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet, Building2, FileText, Search, AlertCircle, RefreshCw, Download } from 'lucide-react';
+import { FileSpreadsheet, Building2, FileText, Search, AlertCircle, RefreshCw, Download, Calculator, Grid } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { extraerBaseLimpiar } from '../lib/excel';
 
@@ -23,12 +23,28 @@ interface MovimientoIndustriaComercio {
 
 export default function IndustriaComercio() {
   const [fileName, setFileName] = useState<string | null>(null);
+  const [erFileName, setErFileName] = useState<string | null>(null);
+
   const [movimientos, setMovimientos] = useState<MovimientoIndustriaComercio[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [cuentaFiltro, setCuentaFiltro] = useState<string>('TODAS');
   const [error, setError] = useState<string | null>(null);
 
-  // Cargar Auxiliar Contable filtrando exclusivamente cuentas 135518
+  // Valores de Sistema desde el Estado de Resultados (Columna C)
+  const [cuenta4Sistema, setCuenta4Sistema] = useState<number>(0);
+  const [cuenta4180_42Sistema, setCuenta4180_42Sistema] = useState<number>(0);
+  const [cuenta4175Sistema, setCuenta4175Sistema] = useState<number>(0);
+
+  // Configuración de la Declaración Bimestral / Periodo
+  const [periodoDeclaracion, setPeriodoDeclaracion] = useState<number>(4);
+
+  // Entradas Manuales de Saldos Anteriores (Fila "Total")
+  const [totalAcumBase, setTotalAcumBase] = useState<number>(3735697000);
+  const [totalAcumBA, setTotalAcumBA] = useState<number>(4810695000);
+  const [totalAcumBB, setTotalAcumBB] = useState<number>(1074998000);
+  const [totalAcumBI, setTotalAcumBI] = useState<number>(33882000);
+
+  // 1. Cargar Auxiliar Contable de ReteICA (Cuentas 135518)
   const handleFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -45,8 +61,6 @@ export default function IndustriaComercio() {
         if (!row || row.length < 10) return;
 
         const colA = String(row[0] ?? '').trim();
-        
-        // Filtrar únicamente cuentas que comiencen por 135518
         if (!colA.startsWith('135518')) return;
 
         const cuentaNombre = String(row[1] ?? '').trim();
@@ -87,9 +101,51 @@ export default function IndustriaComercio() {
     }
   };
 
+  // 2. Cargar Estado de Resultado Integral para Cuentas 4, 4180+42 y 4175
+  const handleERFileUpload = async (file: File) => {
+    try {
+      setError(null);
+      setErFileName(file.name);
+
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
+
+      let valC4 = 0;
+      let valC4180 = 0;
+      let valC42 = 0;
+      let valC4175 = 0;
+
+      for (let i = 0; i < rawData.length; i++) {
+        const row = rawData[i];
+        if (!row || row.length < 3) continue;
+
+        const codCuenta = String(row[0] ?? '').trim();
+        const rawVal = row[2];
+        const valNum = rawVal !== undefined && rawVal !== null ? parseFloat(String(rawVal).replace(/,/g, '')) || 0 : 0;
+
+        if (codCuenta === '4') valC4 = valNum;
+        else if (codCuenta === '4180') valC4180 = valNum;
+        else if (codCuenta === '42') valC42 = valNum;
+        else if (codCuenta === '4175') valC4175 = Math.abs(valNum);
+      }
+
+      setCuenta4Sistema(valC4);
+      setCuenta4180_42Sistema(valC4180 + valC42);
+      setCuenta4175Sistema(valC4175);
+    } catch (err) {
+      setError('Error al procesar el Estado de Resultado Integral.');
+    }
+  };
+
   const handleReset = () => {
     setMovimientos([]);
     setFileName(null);
+    setErFileName(null);
+    setCuenta4Sistema(0);
+    setCuenta4180_42Sistema(0);
+    setCuenta4175Sistema(0);
     setError(null);
     setSearchTerm('');
     setCuentaFiltro('TODAS');
@@ -102,6 +158,28 @@ export default function IndustriaComercio() {
       maximumFractionDigits: 2,
     }).format(val);
   };
+
+  // Totales de Auxiliar Retenciones (BI)
+  const totalRetencionDebito = movimientos.reduce((acc, m) => acc + m.debito, 0);
+  const totalDevolucionCredito = movimientos.reduce((acc, m) => acc + m.credito, 0);
+  const biRetencionesSistema = totalRetencionDebito - totalDevolucionCredito;
+
+  // --------------------------------------------------------------------------
+  // CÁLCULOS DEL CUADRO DE LIQUIDACIÓN DE INDUSTRIA Y COMERCIO
+  // --------------------------------------------------------------------------
+  const redondearAlMil = (val: number) => (val > 0 ? Math.round(val / 1000) * 1000 : 0);
+
+  // Periodo = RedondearAlMil(Sistema - Total Acumulado)
+  const baseGravablePeriodo = redondearAlMil(cuenta4Sistema - totalAcumBase);
+  const baIngOrdPeriodo = redondearAlMil(cuenta4180_42Sistema - totalAcumBA);
+  const bbDevolucionesPeriodo = redondearAlMil(cuenta4175Sistema - totalAcumBB);
+  const biRetencionesPeriodo = redondearAlMil(biRetencionesSistema - totalAcumBI);
+
+  // Diferencias = Sistema - (Total Acumulado + Periodo)
+  const diffBase = Math.round(cuenta4Sistema - (totalAcumBase + baseGravablePeriodo));
+  const diffBA = Math.round(cuenta4180_42Sistema - (totalAcumBA + baIngOrdPeriodo));
+  const diffBB = Math.round(cuenta4175Sistema - (totalAcumBB + bbDevolucionesPeriodo));
+  const diffBI = Math.round(biRetencionesSistema - (totalAcumBI + biRetencionesPeriodo));
 
   const cuentasUnicas = Array.from(new Set(movimientos.map((m) => m.cuentaCode)));
 
@@ -119,17 +197,23 @@ export default function IndustriaComercio() {
     return cumpleCuenta && cumpleSearch;
   });
 
-  const totalBase = movimientosFiltrados.reduce((acc, m) => acc + m.baseLimpia, 0);
-  const totalRetencionDebito = movimientosFiltrados.reduce((acc, m) => acc + m.debito, 0);
-  const totalDevolucionCredito = movimientosFiltrados.reduce((acc, m) => acc + m.credito, 0);
+  const totalBaseExtraida = movimientosFiltrados.reduce((acc, m) => acc + m.baseLimpia, 0);
 
-  // Exportar a Excel con la estructura actualizada
+  // Exportar a Excel
   const exportarExcel = () => {
     if (movimientosFiltrados.length === 0) return;
 
     const rows = [
-      ['REPORTE DE INDUSTRIA Y COMERCIO (RETEICA - CUENTAS 135518)'],
+      ['DECLARACIÓN Y LIQUIDACIÓN DE INDUSTRIA Y COMERCIO (ICA)'],
+      ['Periodo:', periodoDeclaracion],
       [''],
+      ['CONCEPTO', 'BASE GRAVABLE', '(BA) ING ORD Y NO OPE', '(BB) DEVOLUCIONES', '(BI) RETENCIONES'],
+      [`Periodo ${periodoDeclaracion}`, baseGravablePeriodo, baIngOrdPeriodo, bbDevolucionesPeriodo, biRetencionesPeriodo],
+      ['Total Acumulado', totalAcumBase, totalAcumBA, totalAcumBB, totalAcumBI],
+      ['Sistema (ER / Aux)', cuenta4Sistema, cuenta4180_42Sistema, cuenta4175Sistema, biRetencionesSistema],
+      ['Diferencia', diffBase, diffBA, diffBB, diffBI],
+      [''],
+      ['DETALLE DE MOVIMIENTOS 135518'],
       ['Cuenta', 'Fecha', 'Comprobante', 'NIT', 'Tercero', 'Origen Base', 'Base Extraída', 'Retención (Débito)', 'Devolución (Crédito)'],
     ];
 
@@ -147,49 +231,50 @@ export default function IndustriaComercio() {
       ]);
     });
 
-    rows.push(['']);
-    rows.push(['TOTALES', '', '', '', '', '', totalBase, totalRetencionDebito, totalDevolucionCredito]);
-
     const ws = XLSX.utils.aoa_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'ReteICA 135518');
-    XLSX.writeFile(wb, `Informe_ReteICA_135518_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'ReteICA');
+    XLSX.writeFile(wb, `Liquidacion_ICA_Periodo_${periodoDeclaracion}.xlsx`);
   };
 
   return (
     <div className="space-y-6">
-      {/* Tarjeta de Carga */}
-      <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center max-w-xl mx-auto flex flex-col items-center justify-between">
-        <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-3 border border-indigo-100">
-          <Building2 className="w-7 h-7" />
-        </div>
-        <h3 className="font-bold text-slate-800 text-sm">Auxiliar de Industria y Comercio (Cuenta 135518)</h3>
-        <p className="text-xs text-slate-500 mt-1 mb-4">
-          {fileName
-            ? `✓ ${fileName} (${movimientos.length} registros)`
-            : 'Sube el archivo Excel de Auxiliar Contable de cuentas 135518.'}
-        </p>
+      {/* Tarjetas de Carga de Archivos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+        <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
+          <div>
+            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-indigo-100">
+              <Building2 className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-slate-800 text-xs">1. Auxiliar ReteICA (Cuenta 135518)</h3>
+            <p className="text-[11px] text-slate-500 mt-1 mb-3">
+              {fileName ? `✓ ${fileName} (${movimientos.length} reg.)` : 'Sube el Excel de auxiliares 135518.'}
+            </p>
+          </div>
 
-        <div className="flex items-center gap-3">
-          <label className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-5 py-2.5 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2">
+          <label className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4" />
-            {fileName ? 'Cambiar Archivo' : 'Cargar Auxiliar 135518'}
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
-            />
+            {fileName ? 'Cambiar Auxiliar' : 'Cargar Auxiliar 135518'}
+            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
           </label>
+        </div>
 
-          {fileName && (
-            <button
-              onClick={handleReset}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl transition-all"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Limpiar
-            </button>
-          )}
+        <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-sm text-center flex flex-col items-center justify-between">
+          <div>
+            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-100">
+              <Calculator className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-slate-800 text-xs">2. Estado de Resultados (Cuentas 4, 4180, 42, 4175)</h3>
+            <p className="text-[11px] text-slate-500 mt-1 mb-3">
+              {erFileName ? `✓ ${erFileName}` : 'Sube el Estado de Resultado Integral.'}
+            </p>
+          </div>
+
+          <label className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4" />
+            {erFileName ? 'Cambiar Estado Resultados' : 'Cargar Estado Resultados'}
+            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleERFileUpload(e.target.files[0])} />
+          </label>
         </div>
       </div>
 
@@ -200,144 +285,207 @@ export default function IndustriaComercio() {
         </div>
       )}
 
-      {/* Tarjetas de Resumen de Saldos */}
-      {movimientos.length > 0 && (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm">
-              <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider block">
-                Total Base Extraída
-              </span>
-              <div className="text-2xl font-black text-indigo-900 mt-1">{formatCOP(totalBase)}</div>
-              <span className="text-[11px] text-indigo-500 mt-0.5 block">Suma de bases en Detalle</span>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-emerald-100 bg-emerald-50/20 shadow-sm">
-              <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider block">
-                Total Retención (Débito)
-              </span>
-              <div className="text-2xl font-black text-emerald-700 mt-1">{formatCOP(totalRetencionDebito)}</div>
-              <span className="text-[11px] text-emerald-600 mt-0.5 block">Movimientos Débito</span>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-rose-100 bg-rose-50/20 shadow-sm">
-              <span className="text-xs font-bold text-rose-600 uppercase tracking-wider block">
-                Total Devolución (Crédito)
-              </span>
-              <div className="text-2xl font-black text-rose-700 mt-1">{formatCOP(totalDevolucionCredito)}</div>
-              <span className="text-[11px] text-rose-500 mt-0.5 block">Movimientos Crédito</span>
-            </div>
+      {/* CUADRO DE CONCILIACIÓN Y LIQUIDACIÓN BIMESTRAL */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-slate-800 text-white p-4 font-bold text-sm flex justify-between items-center">
+          <span className="flex items-center gap-2">
+            <Grid className="w-4 h-4 text-indigo-400" /> LIQUIDACIÓN Y CONCILIACIÓN INDUSTRIA Y COMERCIO (ICA)
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-300">Periodo / Bimestre:</span>
+            <select
+              value={periodoDeclaracion}
+              onChange={(e) => setPeriodoDeclaracion(Number(e.target.value))}
+              className="bg-slate-700 text-white border border-slate-600 font-mono font-bold text-xs px-2 py-1 rounded-lg outline-none cursor-pointer"
+            >
+              {[1, 2, 3, 4, 5, 6].map((p) => (
+                <option key={p} value={p}>
+                  Periodo {p}
+                </option>
+              ))}
+            </select>
           </div>
+        </div>
 
-          <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-bold text-slate-600">Subcuenta:</span>
-              <select
-                value={cuentaFiltro}
-                onChange={(e) => setCuentaFiltro(e.target.value)}
-                className="bg-slate-50 border border-slate-300 text-xs px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
-              >
-                <option value="TODAS">Todas las subcuentas ({movimientos.length})</option>
-                {cuentasUnicas.map((c) => (
-                  <option key={c} value={c}>
-                    Subcuenta {c}
-                  </option>
-                ))}
-              </select>
-            </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                <th className="p-3 w-32">CONCEPTO</th>
+                <th className="p-3 text-right">BASE GRAVABLE</th>
+                <th className="p-3 text-right">(BA) ING ORD Y NO OPE</th>
+                <th className="p-3 text-right">(BB) DEVOLUCIONES</th>
+                <th className="p-3 text-right">(BI) RETENCIONES</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium">
+              {/* Fila Periodo X (Resta Redondeada) */}
+              <tr className="bg-indigo-50/60 font-bold text-indigo-950">
+                <td className="p-3 font-bold flex items-center gap-1.5">
+                  <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-[10px]">
+                    Periodo {periodoDeclaracion}
+                  </span>
+                </td>
+                <td className="p-3 text-right font-mono text-sm text-indigo-900 font-black">
+                  {formatCOP(baseGravablePeriodo)}
+                </td>
+                <td className="p-3 text-right font-mono text-sm text-indigo-900 font-black">
+                  {formatCOP(baIngOrdPeriodo)}
+                </td>
+                <td className="p-3 text-right font-mono text-sm text-indigo-900 font-black">
+                  {formatCOP(bbDevolucionesPeriodo)}
+                </td>
+                <td className="p-3 text-right font-mono text-sm text-emerald-700 font-black">
+                  {formatCOP(biRetencionesPeriodo)}
+                </td>
+              </tr>
 
+              {/* Fila Total Acumulado Anterior (Manual) */}
+              <tr className="bg-slate-50 font-bold text-slate-700">
+                <td className="p-3 font-bold">Total Acumulado</td>
+                <td className="p-3 text-right">
+                  <input
+                    type="number"
+                    value={totalAcumBase}
+                    onChange={(e) => setTotalAcumBase(Number(e.target.value) || 0)}
+                    className="w-32 bg-white border border-slate-300 font-mono font-bold text-right px-2 py-1 rounded outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </td>
+                <td className="p-3 text-right">
+                  <input
+                    type="number"
+                    value={totalAcumBA}
+                    onChange={(e) => setTotalAcumBA(Number(e.target.value) || 0)}
+                    className="w-32 bg-white border border-slate-300 font-mono font-bold text-right px-2 py-1 rounded outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </td>
+                <td className="p-3 text-right">
+                  <input
+                    type="number"
+                    value={totalAcumBB}
+                    onChange={(e) => setTotalAcumBB(Number(e.target.value) || 0)}
+                    className="w-32 bg-white border border-slate-300 font-mono font-bold text-right px-2 py-1 rounded outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </td>
+                <td className="p-3 text-right">
+                  <input
+                    type="number"
+                    value={totalAcumBI}
+                    onChange={(e) => setTotalAcumBI(Number(e.target.value) || 0)}
+                    className="w-32 bg-white border border-slate-300 font-mono font-bold text-right px-2 py-1 rounded outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </td>
+              </tr>
+
+              {/* Fila Sistema (ER / Auxiliar) */}
+              <tr className="bg-white font-bold text-slate-800">
+                <td className="p-3 font-bold text-slate-600">Sistema</td>
+                <td className="p-3 text-right font-mono text-slate-900">{formatCOP(cuenta4Sistema)}</td>
+                <td className="p-3 text-right font-mono text-slate-900">{formatCOP(cuenta4180_42Sistema)}</td>
+                <td className="p-3 text-right font-mono text-slate-900">{formatCOP(cuenta4175Sistema)}</td>
+                <td className="p-3 text-right font-mono text-slate-900">{formatCOP(biRetencionesSistema)}</td>
+              </tr>
+
+              {/* Fila Diferencia */}
+              <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
+                <td className="p-3 uppercase">Diferencia</td>
+                <td className={`p-3 text-right font-mono ${diffBase !== 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                  {diffBase}
+                </td>
+                <td className={`p-3 text-right font-mono ${diffBA !== 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                  {diffBA}
+                </td>
+                <td className={`p-3 text-right font-mono ${diffBB !== 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                  {diffBB}
+                </td>
+                <td className={`p-3 text-right font-mono ${diffBI !== 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                  {diffBI}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Tabla de Detalle de Movimientos 135518 */}
+      {movimientos.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-indigo-800 text-white p-4 font-bold text-sm flex justify-between items-center">
+            <span className="flex items-center gap-2">
+              <FileText className="w-4 h-4" /> MOVIMIENTOS AUXILIARES 135518
+            </span>
             <div className="flex items-center gap-3">
               <button
                 onClick={exportarExcel}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition-all cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" /> Descargar Excel
               </button>
-
-              <div className="relative w-full sm:w-64">
-                <input
-                  type="text"
-                  placeholder="Buscar por tercero, NIT, comprobante..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="bg-slate-50 border border-slate-300 text-xs pl-8 pr-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-full font-medium"
-                />
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-              </div>
-            </div>
-          </div>
-
-          {/* Tabla con la Estructura Exacta Requerida */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="bg-indigo-800 text-white p-4 font-bold text-sm flex justify-between items-center">
-              <span className="flex items-center gap-2">
-                <FileText className="w-4 h-4" /> REPORTE DE INDUSTRIA Y COMERCIO (CUENTAS 135518)
-              </span>
-              <span className="bg-indigo-700 px-2.5 py-1 rounded-lg text-xs">
+              <span className="bg-indigo-700 px-2.5 py-1 rounded-lg text-xs font-mono">
                 {movimientosFiltrados.length} registros
               </span>
             </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
-                    <th className="p-3">Cuenta</th>
-                    <th className="p-3">Fecha</th>
-                    <th className="p-3">Comprobante</th>
-                    <th className="p-3">NIT</th>
-                    <th className="p-3">Tercero</th>
-                    <th className="p-3">Origen Base</th>
-                    <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">Base Extraída</th>
-                    <th className="p-3 text-right text-emerald-700">Retención (Débito)</th>
-                    <th className="p-3 text-right text-rose-700">Devolución (Crédito)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {movimientosFiltrados.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50">
-                      <td className="p-3 font-bold text-slate-700">{m.cuentaCode}</td>
-                      <td className="p-3 font-mono text-slate-500">{m.fecha}</td>
-                      <td className="p-3 font-bold text-indigo-600">{m.comprobante}</td>
-                      <td className="p-3 font-mono text-slate-600">{m.nit}</td>
-                      <td className="p-3 font-bold text-slate-800 truncate max-w-[200px]">{m.tercero}</td>
-                      <td className="p-3">
-                        {m.baseOrigen === 'DETALLE' ? (
-                          <span className="inline-block bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            DETALLE
-                          </span>
-                        ) : (
-                          <span className="inline-block bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            SIN_BASE
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-indigo-700 bg-indigo-50/30">
-                        {m.baseLimpia > 0 ? formatCOP(m.baseLimpia) : '-'}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-emerald-600">
-                        {m.debito > 0 ? formatCOP(m.debito) : '-'}
-                      </td>
-                      <td className="p-3 text-right font-mono font-bold text-rose-600">
-                        {m.credito > 0 ? formatCOP(m.credito) : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-slate-800 font-black text-white text-xs">
-                    <td className="p-3" colSpan={6}>
-                      TOTALES
-                    </td>
-                    <td className="p-3 text-right font-mono text-indigo-300">{formatCOP(totalBase)}</td>
-                    <td className="p-3 text-right font-mono text-emerald-400">{formatCOP(totalRetencionDebito)}</td>
-                    <td className="p-3 text-right font-mono text-rose-300">{formatCOP(totalDevolucionCredito)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
           </div>
-        </>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                  <th className="p-3">Cuenta</th>
+                  <th className="p-3">Fecha</th>
+                  <th className="p-3">Comprobante</th>
+                  <th className="p-3">NIT</th>
+                  <th className="p-3">Tercero</th>
+                  <th className="p-3">Origen Base</th>
+                  <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">Base Extraída</th>
+                  <th className="p-3 text-right text-emerald-700">Retención (Débito)</th>
+                  <th className="p-3 text-right text-rose-700">Devolución (Crédito)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {movimientosFiltrados.map((m) => (
+                  <tr key={m.id} className="hover:bg-slate-50">
+                    <td className="p-3 font-bold text-slate-700">{m.cuentaCode}</td>
+                    <td className="p-3 font-mono text-slate-500">{m.fecha}</td>
+                    <td className="p-3 font-bold text-indigo-600">{m.comprobante}</td>
+                    <td className="p-3 font-mono text-slate-600">{m.nit}</td>
+                    <td className="p-3 font-bold text-slate-800 truncate max-w-[200px]">{m.tercero}</td>
+                    <td className="p-3">
+                      {m.baseOrigen === 'DETALLE' ? (
+                        <span className="inline-block bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          DETALLE
+                        </span>
+                      ) : (
+                        <span className="inline-block bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          SIN_BASE
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-indigo-700 bg-indigo-50/30">
+                      {m.baseLimpia > 0 ? formatCOP(m.baseLimpia) : '-'}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                      {m.debito > 0 ? formatCOP(m.debito) : '-'}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-rose-600">
+                      {m.credito > 0 ? formatCOP(m.credito) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-800 font-black text-white text-xs">
+                  <td className="p-3" colSpan={6}>
+                    TOTALES AUXILIAR 135518
+                  </td>
+                  <td className="p-3 text-right font-mono text-indigo-300">{formatCOP(totalBaseExtraida)}</td>
+                  <td className="p-3 text-right font-mono text-emerald-400">{formatCOP(totalRetencionDebito)}</td>
+                  <td className="p-3 text-right font-mono text-rose-300">{formatCOP(totalDevolucionCredito)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
