@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet, Building2, FileText, Search, AlertCircle, RefreshCw, Download, Calculator } from 'lucide-react';
+import { FileSpreadsheet, Building2, FileText, Search, AlertCircle, RefreshCw, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { extraerBaseLimpiar } from '../lib/excel';
 
@@ -28,7 +28,7 @@ export default function IndustriaComercio() {
   const [cuentaFiltro, setCuentaFiltro] = useState<string>('TODAS');
   const [error, setError] = useState<string | null>(null);
 
-  // Cargar Auxiliar Contable de Industria y Comercio (135518 / 2368)
+  // Cargar Auxiliar Contable filtrando exclusivamente cuentas 135518
   const handleFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -45,17 +45,9 @@ export default function IndustriaComercio() {
         if (!row || row.length < 10) return;
 
         const colA = String(row[0] ?? '').trim();
-        const colALower = colA.toLowerCase();
-
-        if (
-          !colA ||
-          colALower.includes('código contable') ||
-          colALower.includes('cuenta contable') ||
-          colALower.includes('total general') ||
-          colALower.includes('procesado en')
-        ) {
-          return;
-        }
+        
+        // Filtrar únicamente cuentas que comiencen por 135518
+        if (!colA.startsWith('135518')) return;
 
         const cuentaNombre = String(row[1] ?? '').trim();
         const comprobante = String(row[2] ?? '').trim();
@@ -72,7 +64,7 @@ export default function IndustriaComercio() {
 
         if (debito > 0 || credito > 0 || baseLimpia > 0) {
           parsedItems.push({
-            id: `ica-${idx}`,
+            id: `ica-135518-${idx}`,
             cuentaCode: colA,
             cuentaNombre,
             comprobante,
@@ -91,7 +83,7 @@ export default function IndustriaComercio() {
 
       setMovimientos(parsedItems);
     } catch (err) {
-      setError('Error al procesar el archivo auxiliar de Industria y Comercio.');
+      setError('Error al procesar el archivo auxiliar de la cuenta 135518.');
     }
   };
 
@@ -128,17 +120,17 @@ export default function IndustriaComercio() {
   });
 
   const totalBase = movimientosFiltrados.reduce((acc, m) => acc + m.baseLimpia, 0);
-  const totalCredito = movimientosFiltrados.reduce((acc, m) => acc + m.credito, 0);
-  const totalDebito = movimientosFiltrados.reduce((acc, m) => acc + m.debito, 0);
+  const totalRetencionDebito = movimientosFiltrados.reduce((acc, m) => acc + m.debito, 0);
+  const totalDevolucionCredito = movimientosFiltrados.reduce((acc, m) => acc + m.credito, 0);
 
-  // Exportar la tabla a Excel
+  // Exportar a Excel con la estructura actualizada
   const exportarExcel = () => {
     if (movimientosFiltrados.length === 0) return;
 
     const rows = [
-      ['REPORTE DE INDUSTRIA Y COMERCIO (RETEICA)'],
+      ['REPORTE DE INDUSTRIA Y COMERCIO (RETEICA - CUENTAS 135518)'],
       [''],
-      ['Cuenta', 'Fecha', 'Comprobante', 'NIT', 'Tercero', 'Origen Base', 'Base Extraída / Nómina', 'Retención (Crédito)', 'Devolución (Débito)'],
+      ['Cuenta', 'Fecha', 'Comprobante', 'NIT', 'Tercero', 'Origen Base', 'Base Extraída', 'Retención (Débito)', 'Devolución (Crédito)'],
     ];
 
     movimientosFiltrados.forEach((m) => {
@@ -150,38 +142,38 @@ export default function IndustriaComercio() {
         m.tercero,
         m.baseOrigen,
         m.baseLimpia,
-        m.credito,
         m.debito,
+        m.credito,
       ]);
     });
 
     rows.push(['']);
-    rows.push(['TOTALES', '', '', '', '', '', totalBase, totalCredito, totalDebito]);
+    rows.push(['TOTALES', '', '', '', '', '', totalBase, totalRetencionDebito, totalDevolucionCredito]);
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Industria y Comercio');
-    XLSX.writeFile(wb, `Informe_Industria_y_Comercio_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'ReteICA 135518');
+    XLSX.writeFile(wb, `Informe_ReteICA_135518_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   return (
     <div className="space-y-6">
-      {/* Targeta de Carga */}
+      {/* Tarjeta de Carga */}
       <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center max-w-xl mx-auto flex flex-col items-center justify-between">
         <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-3 border border-indigo-100">
           <Building2 className="w-7 h-7" />
         </div>
-        <h3 className="font-bold text-slate-800 text-sm">Auxiliar de Industria y Comercio / ReteICA</h3>
+        <h3 className="font-bold text-slate-800 text-sm">Auxiliar de Industria y Comercio (Cuenta 135518)</h3>
         <p className="text-xs text-slate-500 mt-1 mb-4">
           {fileName
             ? `✓ ${fileName} (${movimientos.length} registros)`
-            : 'Sube el archivo Excel de Auxiliar Contable de ReteICA.'}
+            : 'Sube el archivo Excel de Auxiliar Contable de cuentas 135518.'}
         </p>
 
         <div className="flex items-center gap-3">
           <label className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-5 py-2.5 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4" />
-            {fileName ? 'Cambiar Archivo' : 'Cargar Auxiliar ReteICA'}
+            {fileName ? 'Cambiar Archivo' : 'Cargar Auxiliar 135518'}
             <input
               type="file"
               accept=".xlsx, .xls"
@@ -208,7 +200,7 @@ export default function IndustriaComercio() {
         </div>
       )}
 
-      {/* Métricas y Tabla de Resultados */}
+      {/* Tarjetas de Resumen de Saldos */}
       {movimientos.length > 0 && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -222,33 +214,33 @@ export default function IndustriaComercio() {
 
             <div className="bg-white p-5 rounded-2xl border border-emerald-100 bg-emerald-50/20 shadow-sm">
               <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider block">
-                Total Retención (Crédito)
+                Total Retención (Débito)
               </span>
-              <div className="text-2xl font-black text-emerald-700 mt-1">{formatCOP(totalCredito)}</div>
-              <span className="text-[11px] text-emerald-600 mt-0.5 block">Movimientos Crédito</span>
+              <div className="text-2xl font-black text-emerald-700 mt-1">{formatCOP(totalRetencionDebito)}</div>
+              <span className="text-[11px] text-emerald-600 mt-0.5 block">Movimientos Débito</span>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-rose-100 bg-rose-50/20 shadow-sm">
               <span className="text-xs font-bold text-rose-600 uppercase tracking-wider block">
-                Total Devolución (Débito)
+                Total Devolución (Crédito)
               </span>
-              <div className="text-2xl font-black text-rose-700 mt-1">{formatCOP(totalDebito)}</div>
-              <span className="text-[11px] text-rose-500 mt-0.5 block">Movimientos Débito</span>
+              <div className="text-2xl font-black text-rose-700 mt-1">{formatCOP(totalDevolucionCredito)}</div>
+              <span className="text-[11px] text-rose-500 mt-0.5 block">Movimientos Crédito</span>
             </div>
           </div>
 
           <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-3">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-bold text-slate-600">Cuenta:</span>
+              <span className="text-xs font-bold text-slate-600">Subcuenta:</span>
               <select
                 value={cuentaFiltro}
                 onChange={(e) => setCuentaFiltro(e.target.value)}
                 className="bg-slate-50 border border-slate-300 text-xs px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
               >
-                <option value="TODAS">Todas las Cuentas ({movimientos.length})</option>
+                <option value="TODAS">Todas las subcuentas ({movimientos.length})</option>
                 {cuentasUnicas.map((c) => (
                   <option key={c} value={c}>
-                    Cuenta {c}
+                    Subcuenta {c}
                   </option>
                 ))}
               </select>
@@ -275,11 +267,11 @@ export default function IndustriaComercio() {
             </div>
           </div>
 
-          {/* Estructura Solicitada */}
+          {/* Tabla con la Estructura Exacta Requerida */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="bg-indigo-800 text-white p-4 font-bold text-sm flex justify-between items-center">
               <span className="flex items-center gap-2">
-                <FileText className="w-4 h-4" /> REPORTE DE INDUSTRIA Y COMERCIO (RETEICA)
+                <FileText className="w-4 h-4" /> REPORTE DE INDUSTRIA Y COMERCIO (CUENTAS 135518)
               </span>
               <span className="bg-indigo-700 px-2.5 py-1 rounded-lg text-xs">
                 {movimientosFiltrados.length} registros
@@ -296,9 +288,9 @@ export default function IndustriaComercio() {
                     <th className="p-3">NIT</th>
                     <th className="p-3">Tercero</th>
                     <th className="p-3">Origen Base</th>
-                    <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">Base Extraída / Nómina</th>
-                    <th className="p-3 text-right text-emerald-700">Retención (Crédito)</th>
-                    <th className="p-3 text-right text-rose-700">Devolución (Débito)</th>
+                    <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">Base Extraída</th>
+                    <th className="p-3 text-right text-emerald-700">Retención (Débito)</th>
+                    <th className="p-3 text-right text-rose-700">Devolución (Crédito)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
@@ -324,10 +316,10 @@ export default function IndustriaComercio() {
                         {m.baseLimpia > 0 ? formatCOP(m.baseLimpia) : '-'}
                       </td>
                       <td className="p-3 text-right font-mono font-bold text-emerald-600">
-                        {m.credito > 0 ? formatCOP(m.credito) : '-'}
+                        {m.debito > 0 ? formatCOP(m.debito) : '-'}
                       </td>
                       <td className="p-3 text-right font-mono font-bold text-rose-600">
-                        {m.debito > 0 ? formatCOP(m.debito) : '-'}
+                        {m.credito > 0 ? formatCOP(m.credito) : '-'}
                       </td>
                     </tr>
                   ))}
@@ -338,8 +330,8 @@ export default function IndustriaComercio() {
                       TOTALES
                     </td>
                     <td className="p-3 text-right font-mono text-indigo-300">{formatCOP(totalBase)}</td>
-                    <td className="p-3 text-right font-mono text-emerald-400">{formatCOP(totalCredito)}</td>
-                    <td className="p-3 text-right font-mono text-rose-300">{formatCOP(totalDebito)}</td>
+                    <td className="p-3 text-right font-mono text-emerald-400">{formatCOP(totalRetencionDebito)}</td>
+                    <td className="p-3 text-right font-mono text-rose-300">{formatCOP(totalDevolucionCredito)}</td>
                   </tr>
                 </tfoot>
               </table>
