@@ -34,7 +34,6 @@ export default function IndustriaComercio() {
   const [cuenta4Sistema, setCuenta4Sistema] = useState<number>(0);
   const [cuenta4180_42Sistema, setCuenta4180_42Sistema] = useState<number>(0);
   const [cuenta4175Sistema, setCuenta4175Sistema] = useState<number>(0);
-  const [retencionesERSistema, setRetencionesERSistema] = useState<number>(0);
 
   // Configuración de la Declaración Bimestral / Periodo
   const [periodoDeclaracion, setPeriodoDeclaracion] = useState<number>(4);
@@ -43,7 +42,7 @@ export default function IndustriaComercio() {
   const [totalAcumBase, setTotalAcumBase] = useState<number>(3735697000);
   const [totalAcumBA, setTotalAcumBA] = useState<number>(4810695000);
   const [totalAcumBB, setTotalAcumBB] = useState<number>(1074998000);
-  const [totalAcumBI, setTotalAcumBI] = useState<number>(0); // Editable amarillo para BI
+  const [totalAcumBI, setTotalAcumBI] = useState<number>(33882994); // Inicializado en el acumulado previo
 
   // 1. Cargar Auxiliar Contable de ReteICA (Cuentas 135518)
   const handleFileUpload = async (file: File) => {
@@ -102,7 +101,7 @@ export default function IndustriaComercio() {
     }
   };
 
-  // 2. Cargar Estado de Resultado Integral para Cuentas 4, 4180+42 y 4175
+  // 2. Cargar Estado de Resultado Integral
   const handleERFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -147,7 +146,6 @@ export default function IndustriaComercio() {
     setCuenta4Sistema(0);
     setCuenta4180_42Sistema(0);
     setCuenta4175Sistema(0);
-    setRetencionesERSistema(0);
     setError(null);
     setSearchTerm('');
     setCuentaFiltro('TODAS');
@@ -162,24 +160,25 @@ export default function IndustriaComercio() {
   };
 
   // --------------------------------------------------------------------------
-  // CÁLCULO DE (BI) RETENCIONES SEGÚN REGLA SOLICITADA
+  // CÁLCULO DINÁMICO REVISADO Y CORREGIDO
   // --------------------------------------------------------------------------
+  // Auxiliar del periodo actual
   const totalRetencionDebito = movimientos.reduce((acc, m) => acc + m.debito, 0);
   const totalDevolucionCredito = movimientos.reduce((acc, m) => acc + m.credito, 0);
-  const valorAuxiliarNetoBI = totalRetencionDebito - totalDevolucionCredito;
+  const valorAuxiliarPeriodoBI = totalRetencionDebito - totalDevolucionCredito;
 
-  // 🔴 Valor Rojo (Sistema BI): Sistema ER + Auxiliar (Débito - Crédito)
-  const biRetencionesSistema = retencionesERSistema + valorAuxiliarNetoBI;
+  // 🔴 SISTEMA BI (Rojo): Acumulado Anterior + Movimiento Auxiliar Periodo
+  const biRetencionesSistema = totalAcumBI + valorAuxiliarPeriodoBI;
 
   const redondearAlMil = (val: number) => (val > 0 ? Math.round(val / 1000) * 1000 : 0);
 
-  // 🟢 Valor Verde (Periodo X): Diferencia entre Sistema y Total Acumulado redondeado al mil más cercano
+  // 🟢 PERIODO X (Verde): RedondearAlMil(Sistema - Total Acumulado)
   const baseGravablePeriodo = redondearAlMil(cuenta4Sistema - totalAcumBase);
   const baIngOrdPeriodo = redondearAlMil(cuenta4180_42Sistema - totalAcumBA);
   const bbDevolucionesPeriodo = redondearAlMil(cuenta4175Sistema - totalAcumBB);
   const biRetencionesPeriodo = redondearAlMil(biRetencionesSistema - totalAcumBI);
 
-  // Fila Diferencia
+  // DIFERENCIA: Sistema - (Total Acumulado + Periodo)
   const diffBase = Math.round(cuenta4Sistema - (totalAcumBase + baseGravablePeriodo));
   const diffBA = Math.round(cuenta4180_42Sistema - (totalAcumBA + baIngOrdPeriodo));
   const diffBB = Math.round(cuenta4175Sistema - (totalAcumBB + bbDevolucionesPeriodo));
@@ -323,7 +322,7 @@ export default function IndustriaComercio() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
-              {/* 🟢 Fila Verde: Periodo X (Resta entre Sistema y Total Acumulado, Aproximado al Mil) */}
+              {/* 🟢 Fila Verde: Periodo X */}
               <tr className="bg-indigo-50/60 font-bold text-indigo-950">
                 <td className="p-3 font-bold flex items-center gap-1.5">
                   <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-[10px]">
@@ -382,7 +381,7 @@ export default function IndustriaComercio() {
                 </td>
               </tr>
 
-              {/* 🔴 Fila Roja: Sistema (Sistema ER + Auxiliar Débito - Crédito) */}
+              {/* 🔴 Fila Roja: Sistema (Total Acumulado BI + Auxiliar Débito - Crédito) */}
               <tr className="bg-white font-bold text-slate-800">
                 <td className="p-3 font-bold text-slate-600">Sistema</td>
                 <td className="p-3 text-right font-mono text-slate-900">{formatCOP(cuenta4Sistema)}</td>
