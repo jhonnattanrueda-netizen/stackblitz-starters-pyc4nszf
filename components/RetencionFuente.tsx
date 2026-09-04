@@ -326,7 +326,7 @@ export default function RetencionFuente() {
   const autorrentaFormulario350 = Math.round(autorrentaCalculadaExacta / 1000) * 1000;
 
   // --------------------------------------------------------------------------
-  // CONSTRUCCIÓN DEL CUADRO COMPARATIVO FORMULARIO 350 (DIAN)
+  // CONSTRUCCIÓN DEL CUADRO UNIFICADO FORMULARIO 350 (DIAN)
   // --------------------------------------------------------------------------
   const generarCuadroDIAN = (): RowCuadroDIAN[] => {
     const conceptos: Record<string, RowCuadroDIAN> = {
@@ -370,9 +370,7 @@ export default function RetencionFuente() {
 
   const cuadroDIAN = generarCuadroDIAN();
 
-  // --------------------------------------------------------------------------
-  // LÓGICA DE DEVOLUCIONES (RENGLÓN 129 Y RENGLÓN 133 DIAN)
-  // --------------------------------------------------------------------------
+  // Devoluciones 2365 (Renglón 129 DIAN)
   const devoluciones2365 = movimientos.filter(
     (m) => m.cuentaCode.startsWith('2365') && m.debito > 0 && !m.tercero.toUpperCase().includes('DIAN')
   );
@@ -392,11 +390,13 @@ export default function RetencionFuente() {
   const baseReteIVA100 = reteIVA100.reduce((acc, m) => acc + m.baseLimpia, 0);
   const retReteIVA100 = reteIVA100.reduce((acc, m) => acc + m.credito, 0);
 
+  // Devoluciones ReteIVA (Renglón 133 DIAN)
   const devoluciones2367 = movimientos.filter(
     (m) => m.cuentaCode.startsWith('2367') && m.debito > 0 && !m.tercero.toUpperCase().includes('DIAN')
   );
   const totalDevoluciones2367 = devoluciones2367.reduce((acc, m) => acc + m.debito, 0);
 
+  // Totales
   const totalRetencionesTerceros = cuadroDIAN.reduce((acc, r) => acc + r.natRet + r.jurRet, 0);
   const totalReteIVATotal = retReteIVA15 + retReteIVA100;
 
@@ -426,7 +426,7 @@ export default function RetencionFuente() {
 
   return (
     <div className="space-y-6">
-      {/* 1. Tarjetas de Carga */}
+      {/* 1. Tarjetas de Carga Integradas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Card 1: Auxiliar Siigo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
@@ -484,7 +484,7 @@ export default function RetencionFuente() {
           </label>
         </div>
 
-        {/* Card 3: Estado de Resultados con Entrada Manual de Acumulado Anterior */}
+        {/* Card 3: Estado de Resultados (Autorrenta) */}
         <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-sm flex flex-col justify-between space-y-3">
           <div className="text-center">
             <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-100">
@@ -534,7 +534,7 @@ export default function RetencionFuente() {
         </div>
       )}
 
-      {/* 2. CUADRO DISCRIMINADO: PERSONA NATURAL VS PERSONA JURÍDICA (FORMULARIO 350 DIAN) */}
+      {/* 2. CUADRO UNIFICADO: DISCRIMINACIÓN DE RETENCIÓN EN LA FUENTE (FORMULARIO 350 DIAN) */}
       {movimientos.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
           <div className="bg-slate-800 text-white p-4 font-bold text-sm flex justify-between items-center">
