@@ -44,15 +44,11 @@ export default function IndustriaComercio() {
   const [totalAcumBB, setTotalAcumBB] = useState<number>(1074998000);
   const [totalAcumBI, setTotalAcumBI] = useState<number>(33882000);
 
-  // Valor acumulado anterior de Retenciones SIN APROXIMAR AL MIL (Fila Sistema BI)
+  // Entrada Manual: Valor acumulado anterior de Retenciones SIN APROXIMAR AL MIL
   const [acumAnteriorSinAproximarBI, setAcumAnteriorSinAproximarBI] = useState<number>(33882995);
 
-  // ESTADOS DEL CUADRO DE LIQUIDACIÓN DE TARIFAS E IMPUESTO ICA
-  const [tarifa966, setTarifa966] = useState<number>(0.00966);
-  const [devolucionesTarifa966, setDevolucionesTarifa966] = useState<number>(0);
-  const [tarifa69, setTarifa69] = useState<number>(0.0069);
-  const [montoTarifa69, setMontoTarifa69] = useState<number>(0);
-  const [devolucionesTarifa69, setDevolucionesTarifa69] = useState<number>(0);
+  // Configuración de Tarifa Distrito e Impuestos Adicionales
+  const [tarifaDistrito, setTarifaDistrito] = useState<number>(0.00966);
   const [sobretasaBomberil, setSobretasaBomberil] = useState<number>(0);
 
   // 1. Cargar Auxiliar Contable de ReteICA (Cuentas 135518)
@@ -171,13 +167,22 @@ export default function IndustriaComercio() {
   };
 
   // --------------------------------------------------------------------------
-  // CÁLCULO DE (BI) RETENCIONES
+  // EXTRAER VALORES POR TARIFA DESDE EL MOVIMIENTO AUXILIAR
   // --------------------------------------------------------------------------
+  const movTarifa966 = movimientos.filter((m) => m.cuentaCode.includes('13551805') || m.descripcion.includes('9.66'));
+  const brutoAuxiliar966 = movTarifa966.reduce((acc, m) => acc + m.debito, 0);
+  const devolucionesAuxiliar966 = movTarifa966.reduce((acc, m) => acc + m.credito, 0);
+
+  const movTarifa69 = movimientos.filter((m) => m.descripcion.includes('6.9'));
+  const brutoAuxiliar69 = movTarifa69.reduce((acc, m) => acc + m.debito, 0);
+  const devolucionesAuxiliar69 = movTarifa69.reduce((acc, m) => acc + m.credito, 0);
+
+  // Movimiento Auxiliar Periodo Total = Total Débito - Total Crédito
   const totalRetencionDebito = movimientos.reduce((acc, m) => acc + m.debito, 0);
   const totalDevolucionCredito = movimientos.reduce((acc, m) => acc + m.credito, 0);
   const auxiliarPeriodoBI = totalRetencionDebito - totalDevolucionCredito;
 
-  // 🔴 Sistema BI (Rojo)
+  // 🔴 Sistema BI (Rojo) = Anterior Sin Aproximar + Auxiliar Periodo
   const biRetencionesSistema = acumAnteriorSinAproximarBI + auxiliarPeriodoBI;
 
   const redondearAlMil = (val: number) => (val > 0 ? Math.round(val / 1000) * 1000 : 0);
@@ -195,19 +200,18 @@ export default function IndustriaComercio() {
   const diffBI = Math.round(biRetencionesSistema - (totalAcumBI + biRetencionesPeriodo));
 
   // --------------------------------------------------------------------------
-  // CÁLCULOS DEL NUEVO CUADRO DE LIQUIDACIÓN DE TARIFAS E IMPUESTO FINAL
+  // CÁLCULO DEL IMPUESTO DISTRITO ICA (CÁLCULO AUTOMÁTICO SECCIÓN AZUL)
   // --------------------------------------------------------------------------
-  const icaCalculadoExacto = baseGravablePeriodo * tarifa966 - devolucionesTarifa966 + montoTarifa69 - devolucionesTarifa69;
-  const icaCalculadoAproxMil = redondearAlMil(icaCalculadoExacto);
+  const icaGeneradoDistritoExacto = baseGravablePeriodo * tarifaDistrito;
+  const icaGeneradoDistritoAprox = redondearAlMil(icaGeneradoDistritoExacto);
 
-  const totalRetencionesExacto = biRetencionesPeriodo;
-  const totalRetencionesAproxMil = redondearAlMil(totalRetencionesExacto);
+  const totalRetencionesPeriodoAprox = redondearAlMil(biRetencionesPeriodo);
 
-  const totalAPagarAntesBomberil = icaCalculadoExacto - totalRetencionesExacto;
-  const totalAPagarAntesBomberilAproxMil = redondearAlMil(totalAPagarAntesBomberil);
+  const totalAPagarNetoExacto = icaGeneradoDistritoExacto - totalRetencionesPeriodoAprox;
+  const totalAPagarNetoAprox = redondearAlMil(totalAPagarNetoExacto);
 
-  const totalAPagarFinalExacto = totalAPagarAntesBomberil + sobretasaBomberil;
-  const totalAPagarFinalAproxMil = redondearAlMil(totalAPagarFinalExacto);
+  const totalAPagarFinalExacto = totalAPagarNetoExacto + sobretasaBomberil;
+  const totalAPagarFinalAprox = redondearAlMil(totalAPagarFinalExacto);
 
   const cuentasUnicas = Array.from(new Set(movimientos.map((m) => m.cuentaCode)));
 
@@ -241,15 +245,19 @@ export default function IndustriaComercio() {
       ['Sistema', cuenta4Sistema, cuenta4180_42Sistema, cuenta4175Sistema, biRetencionesSistema],
       ['Diferencia', diffBase, diffBA, diffBB, diffBI],
       [''],
-      ['LIQUIDACIÓN DEL IMPUESTO ICA'],
-      ['Base Gravable:', baseGravablePeriodo],
-      ['Tarifa 9.66 por mil:', baseGravablePeriodo * tarifa966],
-      ['Devoluciones Tarifa 9.66:', devolucionesTarifa966],
-      ['Total Retenciones:', totalRetencionesAproxMil],
-      ['Impuesto ICA Generado:', icaCalculadoAproxMil],
-      ['Total a Pagar Neto:', totalAPagarAntesBomberilAproxMil],
+      ['LIQUIDACIÓN Y TARIFAS DEL IMPUESTO'],
+      ['Tarifa 9.66 por mil (Auxiliar):', brutoAuxiliar966],
+      ['(-) Devoluciones Tarifa 9.66 (Auxiliar):', devolucionesAuxiliar966],
+      ['Tarifa 6.9 por mil (Auxiliar):', brutoAuxiliar69],
+      ['(-) Devoluciones Tarifa 6.9 (Auxiliar):', devolucionesAuxiliar69],
+      [''],
+      ['CÁLCULO IMPUESTO DISTRITO'],
+      ['Base Gravable Periodo:', baseGravablePeriodo],
+      ['Impuesto ICA Generado (Base * 9.66/1000):', icaGeneradoDistritoAprox],
+      ['Total Retenciones (BI) Periodo:', totalRetencionesPeriodoAprox],
+      ['Total a Pagar Neto:', totalAPagarNetoAprox],
       ['Sobretasa Bomberil:', sobretasaBomberil],
-      ['TOTAL A PAGAR FINAL:', totalAPagarFinalAproxMil],
+      ['TOTAL A PAGAR FINAL:', totalAPagarFinalAprox],
       [''],
       ['DETALLE DE MOVIMIENTOS 135518'],
       ['Cuenta', 'Fecha', 'Comprobante', 'NIT', 'Tercero', 'Origen Base', 'Base Extraída', 'Retención (Débito)', 'Devolución (Crédito)'],
@@ -462,7 +470,7 @@ export default function IndustriaComercio() {
         </div>
       </div>
 
-      {/* 2. NUEVO CUADRO EN LA LÍNEA AMARILLA: LIQUIDACIÓN DEL IMPUESTO ICA A DECLARAR */}
+      {/* 2. PANEL DE LIQUIDACIÓN Y TARIFAS DEL IMPUESTO A DECLARAR */}
       <div className="bg-white rounded-2xl border-2 border-amber-300 shadow-sm overflow-hidden">
         <div className="bg-amber-600 text-white p-3.5 font-bold text-xs flex justify-between items-center">
           <span className="flex items-center gap-2">
@@ -472,51 +480,39 @@ export default function IndustriaComercio() {
         </div>
 
         <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs font-medium">
-          {/* Columna Izquierda: Desglose por Tarifas */}
-          <div className="space-y-2 border-r border-slate-200 pr-0 lg:pr-6">
-            <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg font-bold text-slate-700">
-              <span>Tarifa 9.66 por mil (0,00966):</span>
-              <span className="font-mono text-slate-900">{formatCOP(baseGravablePeriodo * tarifa966)}</span>
+          {/* SECCIÓN IZQUIERDA (AMARILLO): INFORMACIÓN EXTRAÍDA DEL MOVIMIENTO AUXILIAR POR CUENTA */}
+          <div className="space-y-3 border-r border-slate-200 pr-0 lg:pr-6">
+            <div className="flex justify-between items-center bg-amber-50/70 p-2.5 rounded-xl border border-amber-200">
+              <span className="font-bold text-amber-950">Tarifa 9.66 por mil (Auxiliar 13551805):</span>
+              <span className="font-mono text-amber-900 font-bold text-sm">{formatCOP(brutoAuxiliar966)}</span>
             </div>
 
-            <div className="flex justify-between items-center pl-3">
-              <span className="text-slate-500">(-) Devoluciones Tarifa 9.66:</span>
-              <input
-                type="number"
-                value={devolucionesTarifa966}
-                onChange={(e) => setDevolucionesTarifa966(Number(e.target.value) || 0)}
-                className="w-32 bg-slate-50 border border-slate-300 font-mono text-right px-2 py-0.5 rounded outline-none"
-              />
+            <div className="flex justify-between items-center pl-3 pr-1">
+              <span className="text-slate-600">(-) Devoluciones Tarifa 9.66 (Auxiliar):</span>
+              <span className="font-mono font-bold text-rose-600">
+                {devolucionesAuxiliar966 > 0 ? `- ${formatCOP(devolucionesAuxiliar966)}` : '$ 0'}
+              </span>
             </div>
 
-            <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg font-bold text-slate-700">
-              <span>Tarifa 6.9 por mil (0,0069):</span>
-              <input
-                type="number"
-                value={montoTarifa69}
-                onChange={(e) => setMontoTarifa69(Number(e.target.value) || 0)}
-                placeholder="0"
-                className="w-32 bg-white border border-slate-300 font-mono text-right px-2 py-0.5 rounded outline-none"
-              />
+            <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+              <span className="font-bold text-slate-700">Tarifa 6.9 por mil (Auxiliar):</span>
+              <span className="font-mono text-slate-900 font-bold">{formatCOP(brutoAuxiliar69)}</span>
             </div>
 
-            <div className="flex justify-between items-center pl-3">
-              <span className="text-slate-500">(-) Devoluciones Tarifa 6.9:</span>
-              <input
-                type="number"
-                value={devolucionesTarifa69}
-                onChange={(e) => setDevolucionesTarifa69(Number(e.target.value) || 0)}
-                className="w-32 bg-slate-50 border border-slate-300 font-mono text-right px-2 py-0.5 rounded outline-none"
-              />
+            <div className="flex justify-between items-center pl-3 pr-1">
+              <span className="text-slate-600">(-) Devoluciones Tarifa 6.9 (Auxiliar):</span>
+              <span className="font-mono font-bold text-rose-600">
+                {devolucionesAuxiliar69 > 0 ? `- ${formatCOP(devolucionesAuxiliar69)}` : '$ 0'}
+              </span>
             </div>
           </div>
 
-          {/* Columna Derecha: Totales y Aproximaciones */}
+          {/* SECCIÓN DERECHA (AZUL/PURPURA): CÁLCULO AUTOMÁTICO DE IMPUESTO ICA DISTRITO */}
           <div className="space-y-2">
-            <div className="flex justify-between items-center bg-indigo-50 p-2 rounded-lg font-bold text-indigo-950">
+            <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg font-bold text-slate-700">
               <span>TOTAL RETENCIONES (BI) PERIODO:</span>
               <span className="font-mono text-emerald-700 text-sm font-black">
-                {formatCOP(totalRetencionesAproxMil)} <span className="text-[10px] text-slate-400 font-normal">Aprox</span>
+                {formatCOP(totalRetencionesPeriodoAprox)} <span className="text-[10px] text-slate-400 font-normal">Aprox</span>
               </span>
             </div>
 
@@ -527,17 +523,18 @@ export default function IndustriaComercio() {
               </span>
             </div>
 
-            <div className="flex justify-between items-center bg-slate-100 p-2 rounded-lg font-bold text-slate-800">
-              <span>IMPUESTO ICA GENERADO:</span>
-              <span className="font-mono text-slate-900 font-black">
-                {formatCOP(icaCalculadoAproxMil)} <span className="text-[10px] text-slate-400 font-normal">Aprox</span>
+            {/* IMPUESTO ICA GENERADO EN AZUL/MAGENTA: Base Gravable Periodo * 0,00966 Aprox. al mil */}
+            <div className="flex justify-between items-center bg-purple-100/80 p-2.5 rounded-xl font-bold text-purple-950 border border-purple-300">
+              <span className="text-purple-900 font-black">IMPUESTO ICA GENERADO (9,66/1000):</span>
+              <span className="font-mono text-purple-900 font-black text-sm">
+                {formatCOP(icaGeneradoDistritoAprox)} <span className="text-[10px] text-purple-600 font-normal">Aprox</span>
               </span>
             </div>
 
             <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg font-bold text-slate-700">
               <span>TOTAL A PAGAR NETO:</span>
               <span className="font-mono text-slate-900 font-black">
-                {formatCOP(totalAPagarAntesBomberilAproxMil)} <span className="text-[10px] text-slate-400 font-normal">Aprox</span>
+                {formatCOP(totalAPagarNetoAprox)} <span className="text-[10px] text-slate-400 font-normal">Aprox</span>
               </span>
             </div>
 
@@ -548,14 +545,14 @@ export default function IndustriaComercio() {
                 value={sobretasaBomberil}
                 onChange={(e) => setSobretasaBomberil(Number(e.target.value) || 0)}
                 placeholder="0"
-                className="w-32 bg-white border border-slate-300 font-mono text-right px-2 py-0.5 rounded outline-none"
+                className="w-32 bg-white border border-slate-300 font-mono text-right px-2 py-0.5 rounded outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
-            <div className="flex justify-between items-center bg-emerald-600 text-white p-2.5 rounded-xl font-black text-sm">
+            <div className="flex justify-between items-center bg-emerald-600 text-white p-2.5 rounded-xl font-black text-sm shadow">
               <span>TOTAL A PAGAR FINAL:</span>
               <span className="font-mono text-yellow-300 font-black text-base">
-                {formatCOP(totalAPagarFinalAproxMil)} <span className="text-[10px] text-emerald-200 font-normal">Aprox</span>
+                {formatCOP(totalAPagarFinalAprox)} <span className="text-[10px] text-emerald-200 font-normal">Aprox</span>
               </span>
             </div>
           </div>
