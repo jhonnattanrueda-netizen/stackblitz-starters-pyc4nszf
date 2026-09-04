@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck, Calendar, Percent, Grid } from 'lucide-react';
+import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck, Calendar, Percent, Grid, ArrowDownCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { extraerBaseLimpiar } from '../lib/excel';
 
@@ -71,7 +71,7 @@ export default function RetencionFuente() {
 
   // Estados de Autorrenta 1,1%
   const [valorCuenta4Sistema, setValorCuenta4Sistema] = useState<number>(0);
-  const [acumuladoAnteriorInput, setAcumuladoAnteriorInput] = useState<number>(3735697000); // Permite digitar libremente
+  const [acumuladoAnteriorInput, setAcumuladoAnteriorInput] = useState<number>(3735697000);
 
   const detectarMesAuxiliar = (items: MovimientoRetencion[]): string => {
     for (const item of items) {
@@ -257,7 +257,7 @@ export default function RetencionFuente() {
     setMovimientos(movimientosActualizados);
   };
 
-  // 3. Cargar Estado de Resultado Integral ANUAL (Obtiene Código Cuenta 4 en Columna C)
+  // 3. Cargar Estado de Resultado Integral ANUAL
   const handleERFileUpload = async (file: File) => {
     try {
       setError(null);
@@ -370,6 +370,14 @@ export default function RetencionFuente() {
 
   const cuadroDIAN = generarCuadroDIAN();
 
+  // --------------------------------------------------------------------------
+  // LÓGICA DE DEVOLUCIONES (RENGLÓN 129 Y RENGLÓN 133 DIAN)
+  // --------------------------------------------------------------------------
+  const devoluciones2365 = movimientos.filter(
+    (m) => m.cuentaCode.startsWith('2365') && m.debito > 0 && !m.tercero.toUpperCase().includes('DIAN')
+  );
+  const totalDevoluciones2365 = devoluciones2365.reduce((acc, m) => acc + m.debito, 0);
+
   // ReteIVA (Cuentas 2367)
   const reteIVA15 = movimientos.filter(
     (m) => m.cuentaCode === '23670101' && !m.tercero.toUpperCase().includes('DIAN')
@@ -384,10 +392,22 @@ export default function RetencionFuente() {
   const baseReteIVA100 = reteIVA100.reduce((acc, m) => acc + m.baseLimpia, 0);
   const retReteIVA100 = reteIVA100.reduce((acc, m) => acc + m.credito, 0);
 
+  const devoluciones2367 = movimientos.filter(
+    (m) => m.cuentaCode.startsWith('2367') && m.debito > 0 && !m.tercero.toUpperCase().includes('DIAN')
+  );
+  const totalDevoluciones2367 = devoluciones2367.reduce((acc, m) => acc + m.debito, 0);
+
   const totalRetencionesTerceros = cuadroDIAN.reduce((acc, r) => acc + r.natRet + r.jurRet, 0);
   const totalReteIVATotal = retReteIVA15 + retReteIVA100;
-  const totalGeneralBruto = totalRetencionesTerceros + autorrentaFormulario350 + totalReteIVATotal;
-  const totalGeneralAproxDIAN = Math.round(totalGeneralBruto / 1000) * 1000;
+
+  const totalGeneralBrutoNeto =
+    totalRetencionesTerceros +
+    autorrentaFormulario350 +
+    totalReteIVATotal -
+    totalDevoluciones2365 -
+    totalDevoluciones2367;
+
+  const totalGeneralAproxDIAN = Math.round(totalGeneralBrutoNeto / 1000) * 1000;
 
   const cuentasUnicas = Array.from(new Set(movimientos.map((m) => m.cuentaCode)));
 
@@ -476,7 +496,6 @@ export default function RetencionFuente() {
             </p>
           </div>
 
-          {/* Formulario de Entrada de Acumulado Anterior e Ingresos Sistema */}
           <div className="bg-blue-50/60 p-3 rounded-xl border border-blue-100 space-y-2 text-left text-[11px]">
             <div className="flex justify-between items-center">
               <span className="font-bold text-slate-600">Sistema (Cuenta 4 ER):</span>
@@ -571,7 +590,7 @@ export default function RetencionFuente() {
                   </td>
                 </tr>
 
-                {/* FILA DINÁMICA DE AUTORRETENCIÓN ESPECIAL (1,1%) */}
+                {/* AUTORRETENCIÓN ESPECIAL (1,1%) */}
                 <tr className="bg-blue-50/80 font-bold text-blue-900 border-b border-blue-200">
                   <td className="p-2.5" colSpan={2}>
                     AUTORRETENCIÓN ESPECIAL (1,1%)
@@ -598,7 +617,7 @@ export default function RetencionFuente() {
                 </tr>
 
                 {/* ReteIVA 100% (Cuenta 23670103) */}
-                <tr className="bg-emerald-50/70 font-bold text-emerald-900 border-b-2 border-slate-300">
+                <tr className="bg-emerald-50/70 font-bold text-emerald-900 border-b border-slate-200">
                   <td className="p-2.5" colSpan={2}>
                     RETEIVA 100% (Cuenta 23670103)
                   </td>
@@ -610,14 +629,43 @@ export default function RetencionFuente() {
                   </td>
                 </tr>
 
-                <tr className="bg-slate-800 font-black text-white text-sm">
-                  <td className="p-3" colSpan={2}>
-                    TOTAL RENTAS Y RETENCIONES BRUTO
+                {/* RENGLÓN 129: DEVOLUCIONES DE RETENCIONES A TERCEROS (Cuentas 2365) */}
+                <tr className="bg-rose-50/70 font-bold text-rose-900 border-b border-rose-200">
+                  <td className="p-2.5 flex items-center gap-1.5" colSpan={2}>
+                    <ArrowDownCircle className="w-3.5 h-3.5 text-rose-600" />
+                    RENGLÓN 129 - DEVOLUCIONES DE RETENCIONES (Cuentas 2365)
                   </td>
-                  <td className="p-3 text-right font-mono text-emerald-400" colSpan={4}>
-                    {formatCOP(totalGeneralBruto)}
+                  <td className="p-2.5 text-right font-mono text-rose-700" colSpan={2}>
+                    {devoluciones2365.length} reg.
+                  </td>
+                  <td className="p-2.5 text-right font-mono font-black text-rose-700" colSpan={2}>
+                    - {formatCOP(totalDevoluciones2365)}
                   </td>
                 </tr>
+
+                {/* RENGLÓN 133: DEVOLUCIONES DE RETENCIÓN DEL IVA (Cuentas 2367) */}
+                <tr className="bg-rose-50/70 font-bold text-rose-900 border-b-2 border-slate-300">
+                  <td className="p-2.5 flex items-center gap-1.5" colSpan={2}>
+                    <ArrowDownCircle className="w-3.5 h-3.5 text-rose-600" />
+                    RENGLÓN 133 - DEVOLUCIONES DE RETEIVA (Cuentas 2367)
+                  </td>
+                  <td className="p-2.5 text-right font-mono text-rose-700" colSpan={2}>
+                    {devoluciones2367.length} reg.
+                  </td>
+                  <td className="p-2.5 text-right font-mono font-black text-rose-700" colSpan={2}>
+                    - {formatCOP(totalDevoluciones2367)}
+                  </td>
+                </tr>
+
+                <tr className="bg-slate-800 font-black text-white text-sm">
+                  <td className="p-3" colSpan={2}>
+                    TOTAL RENTAS Y RETENCIONES BRUTO NETO
+                  </td>
+                  <td className="p-3 text-right font-mono text-emerald-400" colSpan={4}>
+                    {formatCOP(totalGeneralBrutoNeto)}
+                  </td>
+                </tr>
+
                 <tr className="bg-indigo-900 font-black text-white text-sm">
                   <td className="p-3" colSpan={2}>
                     TOTAL APROXIMADO A PAGAR (FORMULARIO 350 DIAN)
@@ -655,6 +703,7 @@ export default function RetencionFuente() {
                   <th className="p-3">Tipo Persona</th>
                   <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">Base Extraída / Nómina</th>
                   <th className="p-3 text-right text-emerald-700">Retención (Crédito)</th>
+                  <th className="p-3 text-right text-rose-700">Devolución (Débito)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -683,6 +732,9 @@ export default function RetencionFuente() {
                     </td>
                     <td className="p-3 text-right font-mono font-bold text-emerald-600">
                       {m.credito > 0 ? formatCOP(m.credito) : '-'}
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-rose-600">
+                      {m.debito > 0 ? formatCOP(m.debito) : '-'}
                     </td>
                   </tr>
                 ))}
