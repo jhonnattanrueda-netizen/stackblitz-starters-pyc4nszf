@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, RefreshCw, Layers, ArrowRightLeft, FileCheck, Zap, Calculator } from 'lucide-react';
+import { Upload, FileSpreadsheet, AlertCircle, RefreshCw, Layers, ArrowRightLeft, FileCheck, Zap, Calculator, Building2 } from 'lucide-react';
 import { parseBankExcel, parseSiigoAuxiliarExcel } from '../lib/excel';
 import { conciliarMovimientos } from '../lib/matcher';
 import { 
@@ -13,9 +13,10 @@ import {
 import ConciliationResults from '../components/ConciliationResults';
 import ConsolidadorFinanciero from '../components/ConsolidadorFinanciero';
 import RetencionFuente from '../components/RetencionFuente';
+import IndustriaComercio from '../components/IndustriaComercio';
 
 export default function Home() {
-  const [tabActiva, setTabActiva] = useState<'conciliacion' | 'consolidador' | 'retencion'>('conciliacion');
+  const [tabActiva, setTabActiva] = useState<'conciliacion' | 'consolidador' | 'retencion' | 'industria'>('conciliacion');
 
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [siigoDataRaw, setSiigoDataRaw] = useState<SiigoTransaction[]>([]);
@@ -124,11 +125,11 @@ export default function Home() {
           </p>
         </div>
 
-        {/* BARRA DE TRES PESTAÑAS PRINCIPALES */}
-        <div className="flex bg-slate-200 p-1.5 rounded-2xl gap-1">
+        {/* BARRA DE CUATRO PESTAÑAS PRINCIPALES */}
+        <div className="flex bg-slate-200 p-1.5 rounded-2xl gap-1 overflow-x-auto">
           <button
             onClick={() => setTabActiva('conciliacion')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
               tabActiva === 'conciliacion'
                 ? 'bg-white text-indigo-700 shadow-md'
                 : 'text-slate-600 hover:text-slate-900'
@@ -139,7 +140,7 @@ export default function Home() {
 
           <button
             onClick={() => setTabActiva('consolidador')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
               tabActiva === 'consolidador'
                 ? 'bg-white text-indigo-700 shadow-md'
                 : 'text-slate-600 hover:text-slate-900'
@@ -150,13 +151,24 @@ export default function Home() {
 
           <button
             onClick={() => setTabActiva('retencion')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
               tabActiva === 'retencion'
                 ? 'bg-white text-indigo-700 shadow-md'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Calculator className="w-4 h-4" /> Retención en la Fuente
+          </button>
+
+          <button
+            onClick={() => setTabActiva('industria')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+              tabActiva === 'industria'
+                ? 'bg-white text-indigo-700 shadow-md'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Building2 className="w-4 h-4" /> Industria y Comercio
           </button>
         </div>
       </header>
@@ -251,9 +263,12 @@ export default function Home() {
           </>
         ) : tabActiva === 'consolidador' ? (
           <ConsolidadorFinanciero />
-        ) : (
+        ) : tabActiva === 'retencion' ? (
           /* Módulo Autónomo e Independiente de Retención */
           <RetencionFuente />
+        ) : (
+          /* Módulo Autónomo de Industria y Comercio */
+          <IndustriaComercio />
         )}
       </main>
     </div>
