@@ -26,11 +26,13 @@ const CONCEPTOS_GMF = [
 
 const OTROS_GASTOS_INDIVIDUALES = [
   'ABONO INTERESES AHORROS',
+  'AJUSTE INTERES AHORROS CR',
   'C MANEJO TARJ DEB',
   'COBRO IVA PAGOS AUTOMATICOS',
   'COMIS SWIFT GIRO VTA MDA EXT',
   'IVA CUOTA MANEJO CUPO ROTATIVO',
   'IVA CUOTA PLAN CANAL NEGOCIOS',
+  'REV IVA CUOTA PLAN CANAL NEGOC',
   'CUOTA MANEJO CUPO ROTATIVO',
   'CUOTA PLAN CANAL NEGOCIOS',
   'RETENCION EN LA FUENTE',
@@ -101,9 +103,19 @@ export default function ConciliationResults({
     const coincidencia = gastosParaTotales.filter((b) => {
       const desc = b.descripcion.toUpperCase().trim();
       
-      // Control de exclusión para evitar que "CUOTA..." sume las filas de "IVA CUOTA..."
+      // Control de exclusión para evitar traslapes de subcadenas
       if (concepto === 'CUOTA PLAN CANAL NEGOCIOS') {
-        return desc.includes('CUOTA PLAN CANAL NEGOCIOS') && !desc.includes('IVA CUOTA PLAN CANAL NEGOCIOS');
+        return (
+          desc.includes('CUOTA PLAN CANAL NEGOCIOS') &&
+          !desc.includes('IVA CUOTA PLAN CANAL NEGOCIOS') &&
+          !desc.includes('REV IVA CUOTA PLAN CANAL NEGOC')
+        );
+      }
+      if (concepto === 'IVA CUOTA PLAN CANAL NEGOCIOS') {
+        return (
+          desc.includes('IVA CUOTA PLAN CANAL NEGOCIOS') &&
+          !desc.includes('REV IVA CUOTA PLAN CANAL NEGOC')
+        );
       }
       if (concepto === 'CUOTA MANEJO CUPO ROTATIVO') {
         return desc.includes('CUOTA MANEJO CUPO ROTATIVO') && !desc.includes('IVA CUOTA MANEJO CUPO ROTATIVO');
@@ -433,7 +445,7 @@ export default function ConciliationResults({
             </div>
           </div>
 
-          {/* Cards Restantes: Conceptos Individuales (Separando la Cuota e IVA Cuota) */}
+          {/* Cards Restantes: Conceptos Individuales */}
           {resumenOtrosGastos.map((item, idx) => (
             <div key={idx} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
               <div>
