@@ -1,5 +1,23 @@
 import { BankTransaction, SiigoTransaction, ConciliationItem, ConciliationSummary } from '../types/conciliacion';
 
+// Función para calcular similitud de palabras entre la descripción del banco y el tercero/observación de Siigo
+const calcularScoreTexto = (descBanco: string, terceroSiigo: string, obsSiigo: string): number => {
+  const bUpper = (descBanco || '').toUpperCase();
+  const sUpper = ((terceroSiigo || '') + ' ' + (obsSiigo || '')).toUpperCase();
+
+  const tokensBanco = bUpper.split(/[\s\-_,.]+/).filter((t) => t.length > 2);
+  if (tokensBanco.length === 0) return 0;
+
+  let coincidencias = 0;
+  tokensBanco.forEach((token) => {
+    if (sUpper.includes(token)) {
+      coincidencias++;
+    }
+  });
+
+  return coincidencias / tokensBanco.length;
+};
+
 export const conciliarMovimientos = (
   bankTransactions: BankTransaction[],
   siigoTransactions: SiigoTransaction[]
@@ -9,28 +27,47 @@ export const conciliarMovimientos = (
   const matchedSiigoIds = new Set<string>();
 
   // -------------------------------------------------------------
-  // FASE 1: Coincidencia 1:1 Exacta por Monto y Naturaleza
+  // FASE 1: Coincidencia 1:1 con Prioridad por Tercero y Tolerancia de Centavos ($2 COP)
   // -------------------------------------------------------------
   bankTransactions.forEach((bankTx) => {
-    const candidateIndex = siigoTransactions.findIndex((siigoTx) => {
+    if (matchedBankIds.has(bankTx.id)) return;
+
+    // Buscar todos los candidatos en Siigo con misma naturaleza (DEBITO/CREDITO) y diff < $2 COP
+    const candidatos = siigoTransactions.filter((siigoTx) => {
       if (matchedSiigoIds.has(siigoTx.id)) return false;
       const mismaNaturaleza = bankTx.tipo === siigoTx.tipo;
-      const mismoMonto = Math.abs(bankTx.monto - siigoTx.monto) < 0.01;
-      return mismaNaturaleza && mismoMonto;
+      const diferenciaMonto = Math.abs(bankTx.monto - siigoTx.monto);
+      return mismaNaturaleza && diferenciaMonto <= 2.0; // Tolerancia de $2 pesos
     });
 
-    if (candidateIndex !== -1) {
-      const siigoTx = siigoTransactions[candidateIndex];
+    if (candidatos.length > 0) {
+      // Ordenar candidatos dando prioridad a la mejor coincidencia de texto/tercero
+      candidatos.sort((a, bCand) => {
+        const scoreA = calcularScoreTexto(bankTx.descripcion, a.tercero, a.observaciones);
+        const scoreB = calcularScoreTexto(bankTx.descripcion, bCand.tercero, bCand.observaciones);
+        return scoreB - scoreA;
+      });
+
+      const mejorSiigo = candidatos[0];
+      const scoreObtenido = calcularScoreTexto(bankTx.descripcion, mejorSiigo.tercero, mejorSiigo.observaciones);
+
       matchedBankIds.add(bankTx.id);
-      matchedSiigoIds.add(siigoTx.id);
+      matchedSiigoIds.add(mejorSiigo.id);
+
+      const diffMonto = Math.abs(bankTx.monto - mejorSiigo.monto);
 
       conciliationItems.push({
-        id: `match-${bankTx.id}-${siigoTx.id}`,
+        id: `match-${bankTx.id}-${mejorSiigo.id}`,
         bankTransaction: bankTx,
-        siigoTransaction: siigoTx,
+        siigoTransaction: mejorSiigo,
         estado: 'CONCILIADO',
-        diferencia: 0,
-        motivo: 'Coincidencia exacta 1:1',
+        diferencia: diffMonto,
+        motivo:
+          scoreObtenido > 0
+            ? 'Coincidencia exacta 1:1 por monto y tercero'
+            : diffMonto > 0
+            ? 'Coincidencia 1:1 con ajuste menor de decimales'
+            : 'Coincidencia exacta 1:1 por monto',
       });
     }
   });
@@ -147,7 +184,6 @@ export const conciliarMovimientos = (
 
   // -------------------------------------------------------------
   // FASE 4: Agrupación N:M (Varios del Banco -> Varios de Siigo)
-  // Caso de tu imagen: ($500.000 + $400.000) = ($306k + $306k + $122.45k + $165.55k) = $900.000
   // -------------------------------------------------------------
   const remainingBank = bankTransactions.filter((b) => !matchedBankIds.has(b.id));
   const remainingSiigo = siigoTransactions.filter((s) => !matchedSiigoIds.has(s.id));
@@ -156,11 +192,9 @@ export const conciliarMovimientos = (
     const bankGroup = remainingBank.filter((b) => b.tipo === tipoActual && !matchedBankIds.has(b.id));
     const siigoGroup = remainingSiigo.filter((s) => s.tipo === tipoActual && !matchedSiigoIds.has(s.id));
 
-    // Evaluar combinaciones del banco de tamaño 2 a 4
     for (let bCount = 2; bCount <= 4; bCount++) {
       if (bankGroup.length < bCount) continue;
 
-      // Generar combinaciones del banco
       const getBankCombos = (arr: BankTransaction[], k: number): BankTransaction[][] => {
         if (k === 0) return [[]];
         if (arr.length === 0) return [];
@@ -177,7 +211,6 @@ export const conciliarMovimientos = (
         if (bCombo.some((b) => matchedBankIds.has(b.id))) continue;
         const targetSum = bCombo.reduce((acc, b) => acc + b.monto, 0);
 
-        // Buscar una combinación en Siigo que sume targetSum
         const availSiigo = siigoGroup.filter((s) => !matchedSiigoIds.has(s.id));
         let matchSiigoCombo: SiigoTransaction[] | null = null;
 
