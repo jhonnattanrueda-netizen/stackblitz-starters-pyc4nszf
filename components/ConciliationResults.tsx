@@ -87,36 +87,47 @@ export default function ConciliationResults({
     (s) => !results.some((r) => r.estado === 'CONCILIADO' && r.siigoTransaction?.id === s.id)
   );
 
-  const totalMontoGastos = pendientesGastosBanco.reduce((acc, b) => acc + b.monto, 0);
+  // --------------------------------------------------------------------------
+  // CÁLCULO RESPETANDO LA NATURALEZA CONTABLE (CRÉDITO vs DÉBITO)
+  // --------------------------------------------------------------------------
+  // CREDITO = Cobro/Salida/Gasto (+ para costo neto)
+  // DEBITO = Abono/Entrada/Reversión (- para costo neto)
+  const calcularGastoNeto = (txs: BankTransaction[]) => {
+    return txs.reduce((acc, b) => {
+      if (b.tipo === 'CREDITO') {
+        return acc + b.monto;
+      } else {
+        return acc - b.monto;
+      }
+    }, 0);
+  };
 
-  // --------------------------------------------------------------------------
-  // CÁLCULO DE RESUMEN DE TOTALES
-  // --------------------------------------------------------------------------
   const gastosParaTotales = bankTransactions.filter((b) => esGastoBancario(b.descripcion));
+  const totalMontoGastos = calcularGastoNeto(gastosParaTotales);
 
   // 1. Agrupado: Comisiones Bancarias
   const txComisiones = gastosParaTotales.filter((b) =>
     CONCEPTOS_COMISIONES.some((c) => b.descripcion.toUpperCase().includes(c))
   );
-  const totalComisiones = txComisiones.reduce((acc, b) => acc + b.monto, 0);
+  const totalComisiones = calcularGastoNeto(txComisiones);
 
   // 2. Agrupado: GMF 4x1000
   const txGMF = gastosParaTotales.filter((b) =>
     CONCEPTOS_GMF.some((c) => b.descripcion.toUpperCase().includes(c))
   );
-  const totalGMF = txGMF.reduce((acc, b) => acc + b.monto, 0);
+  const totalGMF = calcularGastoNeto(txGMF);
 
   // 3. Agrupado: Abono e Intereses Ahorros
   const txIntereses = gastosParaTotales.filter((b) =>
     CONCEPTOS_INTERESES.some((c) => b.descripcion.toUpperCase().includes(c))
   );
-  const totalIntereses = txIntereses.reduce((acc, b) => acc + b.monto, 0);
+  const totalIntereses = calcularGastoNeto(txIntereses);
 
-  // 4. Agrupado: IVA Cuota Plan Canal Negocios (Base + Reversión)
+  // 4. Agrupado: IVA Cuota Plan Canal Negocios (Base CREDITO - Reversión DEBITO)
   const txIvaCanal = gastosParaTotales.filter((b) =>
     CONCEPTOS_IVA_CANAL.some((c) => b.descripcion.toUpperCase().includes(c))
   );
-  const totalIvaCanal = txIvaCanal.reduce((acc, b) => acc + b.monto, 0);
+  const totalIvaCanal = calcularGastoNeto(txIvaCanal);
 
   // 5. Desglose Individual Restante
   const resumenOtrosGastos: { concepto: string; total: number; cantidad: number }[] = [];
@@ -125,7 +136,7 @@ export default function ConciliationResults({
     const coincidencia = gastosParaTotales.filter((b) => {
       const desc = b.descripcion.toUpperCase().trim();
       
-      // Control de exclusión para que la cuota base no absorba las de IVA
+      // Control de exclusiones
       if (concepto === 'CUOTA PLAN CANAL NEGOCIOS') {
         return (
           desc.includes('CUOTA PLAN CANAL NEGOCIOS') &&
@@ -141,10 +152,10 @@ export default function ConciliationResults({
     });
 
     if (coincidencia.length > 0) {
-      const suma = coincidencia.reduce((acc, b) => acc + b.monto, 0);
+      const sumaNeto = calcularGastoNeto(coincidencia);
       resumenOtrosGastos.push({
         concepto,
-        total: suma,
+        total: sumaNeto,
         cantidad: coincidencia.length,
       });
     }
@@ -183,7 +194,7 @@ export default function ConciliationResults({
           <div className="text-xl font-black text-blue-700 mt-1 flex items-center gap-1.5">
             <Building2 className="w-5 h-5" /> {pendientesGastosBanco.length}
           </div>
-          <span className="text-[10px] text-blue-500 mt-0.5 block">Total: {formatCOP(totalMontoGastos)}</span>
+          <span className="text-[10px] text-blue-500 mt-0.5 block">Neto: {formatCOP(totalMontoGastos)}</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-amber-100 bg-amber-50/20 shadow-sm">
@@ -430,7 +441,7 @@ export default function ConciliationResults({
             <h3 className="font-bold text-slate-800 text-sm">Resumen y Totales de Gastos Bancarios por Concepto</h3>
           </div>
           <span className="text-xs font-bold text-slate-500">
-            Total Gastos Periodo: <span className="text-indigo-700 font-mono text-sm">{formatCOP(gastosParaTotales.reduce((acc, b) => acc + b.monto, 0))}</span>
+            Total Gastos Neto: <span className="text-indigo-700 font-mono text-sm">{formatCOP(totalMontoGastos)}</span>
           </span>
         </div>
 
@@ -467,7 +478,7 @@ export default function ConciliationResults({
               <div>
                 <p className="text-xs font-bold text-slate-800">ABONO INTERESES AHORROS</p>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  {txIntereses.length} reg. (Abonos + Ajuste Interés)
+                  {txIntereses.length} reg. (Abono - Ajuste)
                 </p>
               </div>
               <div className="text-right">
@@ -476,13 +487,13 @@ export default function ConciliationResults({
             </div>
           )}
 
-          {/* Card 4: IVA Cuota Plan Canal Negocios Agrupado */}
+          {/* Card 4: IVA Cuota Plan Canal Negocios (Gasto $8.151 - Reversión $271,70 = $7.879,30) */}
           {txIvaCanal.length > 0 && (
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
               <div>
                 <p className="text-xs font-bold text-slate-800">IVA CUOTA PLAN CANAL NEGOCIOS</p>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  {txIvaCanal.length} reg. (IVA Cuota + Reversión IVA)
+                  {txIvaCanal.length} reg. (Cuota $8.151,00 - Reversión $271,70)
                 </p>
               </div>
               <div className="text-right">
