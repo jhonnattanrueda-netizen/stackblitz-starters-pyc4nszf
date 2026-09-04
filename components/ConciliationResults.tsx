@@ -24,15 +24,23 @@ const CONCEPTOS_GMF = [
   'IMPTO GOBIERNO 4X1000',
 ];
 
-const OTROS_GASTOS_INDIVIDUALES = [
+// Conceptos agrupados compuestos
+const CONCEPTOS_INTERESES = [
   'ABONO INTERESES AHORROS',
   'AJUSTE INTERES AHORROS CR',
+];
+
+const CONCEPTOS_IVA_CANAL = [
+  'IVA CUOTA PLAN CANAL NEGOCIOS',
+  'REV IVA CUOTA PLAN CANAL NEGOC',
+];
+
+// Demás conceptos individuales simples
+const OTROS_GASTOS_INDIVIDUALES = [
   'C MANEJO TARJ DEB',
   'COBRO IVA PAGOS AUTOMATICOS',
   'COMIS SWIFT GIRO VTA MDA EXT',
   'IVA CUOTA MANEJO CUPO ROTATIVO',
-  'IVA CUOTA PLAN CANAL NEGOCIOS',
-  'REV IVA CUOTA PLAN CANAL NEGOC',
   'CUOTA MANEJO CUPO ROTATIVO',
   'CUOTA PLAN CANAL NEGOCIOS',
   'RETENCION EN LA FUENTE',
@@ -44,6 +52,8 @@ const OTROS_GASTOS_INDIVIDUALES = [
 const ALL_GASTOS_PATTERNS = [
   ...CONCEPTOS_COMISIONES,
   ...CONCEPTOS_GMF,
+  ...CONCEPTOS_INTERESES,
+  ...CONCEPTOS_IVA_CANAL,
   ...OTROS_GASTOS_INDIVIDUALES,
 ];
 
@@ -96,24 +106,30 @@ export default function ConciliationResults({
   );
   const totalGMF = txGMF.reduce((acc, b) => acc + b.monto, 0);
 
-  // 3. Desglose Individual Sin Traslapes
+  // 3. Agrupado: Abono e Intereses Ahorros
+  const txIntereses = gastosParaTotales.filter((b) =>
+    CONCEPTOS_INTERESES.some((c) => b.descripcion.toUpperCase().includes(c))
+  );
+  const totalIntereses = txIntereses.reduce((acc, b) => acc + b.monto, 0);
+
+  // 4. Agrupado: IVA Cuota Plan Canal Negocios (Base + Reversión)
+  const txIvaCanal = gastosParaTotales.filter((b) =>
+    CONCEPTOS_IVA_CANAL.some((c) => b.descripcion.toUpperCase().includes(c))
+  );
+  const totalIvaCanal = txIvaCanal.reduce((acc, b) => acc + b.monto, 0);
+
+  // 5. Desglose Individual Restante
   const resumenOtrosGastos: { concepto: string; total: number; cantidad: number }[] = [];
 
   OTROS_GASTOS_INDIVIDUALES.forEach((concepto) => {
     const coincidencia = gastosParaTotales.filter((b) => {
       const desc = b.descripcion.toUpperCase().trim();
       
-      // Control de exclusión para evitar traslapes de subcadenas
+      // Control de exclusión para que la cuota base no absorba las de IVA
       if (concepto === 'CUOTA PLAN CANAL NEGOCIOS') {
         return (
           desc.includes('CUOTA PLAN CANAL NEGOCIOS') &&
           !desc.includes('IVA CUOTA PLAN CANAL NEGOCIOS') &&
-          !desc.includes('REV IVA CUOTA PLAN CANAL NEGOC')
-        );
-      }
-      if (concepto === 'IVA CUOTA PLAN CANAL NEGOCIOS') {
-        return (
-          desc.includes('IVA CUOTA PLAN CANAL NEGOCIOS') &&
           !desc.includes('REV IVA CUOTA PLAN CANAL NEGOC')
         );
       }
@@ -444,6 +460,36 @@ export default function ConciliationResults({
               <span className="font-mono font-bold text-sm text-slate-900 block">{formatCOP(totalGMF)}</span>
             </div>
           </div>
+
+          {/* Card 3: Abono e Intereses Ahorros Agrupados */}
+          {txIntereses.length > 0 && (
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+              <div>
+                <p className="text-xs font-bold text-slate-800">ABONO INTERESES AHORROS</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {txIntereses.length} reg. (Abonos + Ajuste Interés)
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="font-mono font-bold text-sm text-slate-900 block">{formatCOP(totalIntereses)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Card 4: IVA Cuota Plan Canal Negocios Agrupado */}
+          {txIvaCanal.length > 0 && (
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+              <div>
+                <p className="text-xs font-bold text-slate-800">IVA CUOTA PLAN CANAL NEGOCIOS</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {txIvaCanal.length} reg. (IVA Cuota + Reversión IVA)
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="font-mono font-bold text-sm text-slate-900 block">{formatCOP(totalIvaCanal)}</span>
+              </div>
+            </div>
+          )}
 
           {/* Cards Restantes: Conceptos Individuales */}
           {resumenOtrosGastos.map((item, idx) => (
