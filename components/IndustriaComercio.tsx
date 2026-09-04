@@ -42,7 +42,10 @@ export default function IndustriaComercio() {
   const [totalAcumBase, setTotalAcumBase] = useState<number>(3735697000);
   const [totalAcumBA, setTotalAcumBA] = useState<number>(4810695000);
   const [totalAcumBB, setTotalAcumBB] = useState<number>(1074998000);
-  const [totalAcumBI, setTotalAcumBI] = useState<number>(33882994); // Inicializado en el acumulado previo
+  const [totalAcumBI, setTotalAcumBI] = useState<number>(33883000); // Fila Amarilla (Aproximado)
+
+  // NUEVO INPUT: Valor acumulado anterior de Retenciones SIN APROXIMAR AL MIL (Fila Sistema BI)
+  const [acumAnteriorSinAproximarBI, setAcumAnteriorSinAproximarBI] = useState<number>(33882999.59);
 
   // 1. Cargar Auxiliar Contable de ReteICA (Cuentas 135518)
   const handleFileUpload = async (file: File) => {
@@ -160,25 +163,25 @@ export default function IndustriaComercio() {
   };
 
   // --------------------------------------------------------------------------
-  // CÁLCULO DINÁMICO REVISADO Y CORREGIDO
+  // CÁLCULO DE (BI) RETENCIONES AJUSTADO
   // --------------------------------------------------------------------------
-  // Auxiliar del periodo actual
+  // Movimiento Auxiliar Periodo = Total Débito - Total Crédito (135518)
   const totalRetencionDebito = movimientos.reduce((acc, m) => acc + m.debito, 0);
   const totalDevolucionCredito = movimientos.reduce((acc, m) => acc + m.credito, 0);
-  const valorAuxiliarPeriodoBI = totalRetencionDebito - totalDevolucionCredito;
+  const auxiliarPeriodoBI = totalRetencionDebito - totalDevolucionCredito;
 
-  // 🔴 SISTEMA BI (Rojo): Acumulado Anterior + Movimiento Auxiliar Periodo
-  const biRetencionesSistema = totalAcumBI + valorAuxiliarPeriodoBI;
+  // 🔴 Sistema BI (Rojo) = Valor Anterior Sin Aproximar (Input al lado) + Movimiento Auxiliar Periodo
+  const biRetencionesSistema = acumAnteriorSinAproximarBI + auxiliarPeriodoBI;
 
   const redondearAlMil = (val: number) => (val > 0 ? Math.round(val / 1000) * 1000 : 0);
 
-  // 🟢 PERIODO X (Verde): RedondearAlMil(Sistema - Total Acumulado)
+  // 🟢 Periodo X (Verde) = RedondearAlMil(Sistema BI - Total Acumulado BI)
   const baseGravablePeriodo = redondearAlMil(cuenta4Sistema - totalAcumBase);
   const baIngOrdPeriodo = redondearAlMil(cuenta4180_42Sistema - totalAcumBA);
   const bbDevolucionesPeriodo = redondearAlMil(cuenta4175Sistema - totalAcumBB);
   const biRetencionesPeriodo = redondearAlMil(biRetencionesSistema - totalAcumBI);
 
-  // DIFERENCIA: Sistema - (Total Acumulado + Periodo)
+  // Fila Diferencia
   const diffBase = Math.round(cuenta4Sistema - (totalAcumBase + baseGravablePeriodo));
   const diffBA = Math.round(cuenta4180_42Sistema - (totalAcumBA + baIngOrdPeriodo));
   const diffBB = Math.round(cuenta4175Sistema - (totalAcumBB + bbDevolucionesPeriodo));
@@ -343,7 +346,7 @@ export default function IndustriaComercio() {
                 </td>
               </tr>
 
-              {/* 🟡 Fila Amarilla: Total Acumulado Anterior (Editable para Digitar) */}
+              {/* 🟡 Fila Amarilla: Total Acumulado Anterior (Aproximado/Declarado) */}
               <tr className="bg-slate-50 font-bold text-slate-700">
                 <td className="p-3 font-bold">Total Acumulado</td>
                 <td className="p-3 text-right">
@@ -375,20 +378,35 @@ export default function IndustriaComercio() {
                     type="number"
                     value={totalAcumBI}
                     onChange={(e) => setTotalAcumBI(Number(e.target.value) || 0)}
-                    placeholder="Digitar acumulado"
+                    placeholder="Acumulado al mil"
                     className="w-32 bg-amber-100/70 border border-amber-300 font-mono font-bold text-right px-2 py-1 rounded outline-none focus:ring-2 focus:ring-amber-500 text-amber-950"
                   />
                 </td>
               </tr>
 
-              {/* 🔴 Fila Roja: Sistema (Total Acumulado BI + Auxiliar Débito - Crédito) */}
+              {/* 🔴 Fila Roja: Sistema (Con nuevo cuadro editable para valor anterior SIN APROXIMAR) */}
               <tr className="bg-white font-bold text-slate-800">
                 <td className="p-3 font-bold text-slate-600">Sistema</td>
                 <td className="p-3 text-right font-mono text-slate-900">{formatCOP(cuenta4Sistema)}</td>
                 <td className="p-3 text-right font-mono text-slate-900">{formatCOP(cuenta4180_42Sistema)}</td>
                 <td className="p-3 text-right font-mono text-slate-900">{formatCOP(cuenta4175Sistema)}</td>
-                <td className="p-3 text-right font-mono text-rose-700 font-bold bg-rose-50/50 rounded-lg">
-                  {formatCOP(biRetencionesSistema)}
+                
+                {/* CORTESÍA DE LA NUEVA LÓGICA BI EN SISTEMA: Campo para digitar anterior exacto + Suma con Auxiliar */}
+                <td className="p-3 text-right bg-rose-50/50 rounded-lg">
+                  <div className="flex items-center justify-end gap-2">
+                    <span className="text-[10px] text-rose-500 font-normal">Ant. exacto:</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={acumAnteriorSinAproximarBI}
+                      onChange={(e) => setAcumAnteriorSinAproximarBI(Number(e.target.value) || 0)}
+                      placeholder="33882999.59"
+                      className="w-28 bg-white border border-rose-200 font-mono text-xs font-bold text-right px-1.5 py-0.5 rounded outline-none focus:ring-2 focus:ring-rose-400 text-slate-800"
+                    />
+                    <span className="font-mono text-rose-700 font-bold text-xs whitespace-nowrap">
+                      = {formatCOP(biRetencionesSistema)}
+                    </span>
+                  </div>
                 </td>
               </tr>
 
