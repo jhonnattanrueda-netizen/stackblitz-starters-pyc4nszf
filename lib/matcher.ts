@@ -27,30 +27,30 @@ export const conciliarMovimientos = (
   const matchedSiigoIds = new Set<string>();
 
   // -------------------------------------------------------------
-  // FASE 1: Coincidencia 1:1 con Prioridad por Tercero y Tolerancia de Centavos ($2 COP)
+  // FASE 1A: Cruce 1:1 Estricto (Misma naturaleza, monto similar <= $2 COP y COINCIDENCIA DE TEXTO/TERCERO)
+  // Esta pasada asegura que "maryory" se enlace primero con "MARYORY" antes de que Broadway u otro tome el valor.
   // -------------------------------------------------------------
   bankTransactions.forEach((bankTx) => {
     if (matchedBankIds.has(bankTx.id)) return;
 
-    // Buscar todos los candidatos en Siigo con misma naturaleza (DEBITO/CREDITO) y diff < $2 COP
-    const candidatos = siigoTransactions.filter((siigoTx) => {
+    const candidatosConTexto = siigoTransactions.filter((siigoTx) => {
       if (matchedSiigoIds.has(siigoTx.id)) return false;
       const mismaNaturaleza = bankTx.tipo === siigoTx.tipo;
       const diferenciaMonto = Math.abs(bankTx.monto - siigoTx.monto);
-      return mismaNaturaleza && diferenciaMonto <= 2.0; // Tolerancia de $2 pesos
+      const scoreTexto = calcularScoreTexto(bankTx.descripcion, siigoTx.tercero, siigoTx.observaciones);
+      
+      return mismaNaturaleza && diferenciaMonto <= 2.0 && scoreTexto > 0;
     });
 
-    if (candidatos.length > 0) {
-      // Ordenar candidatos dando prioridad a la mejor coincidencia de texto/tercero
-      candidatos.sort((a, bCand) => {
+    if (candidatosConTexto.length > 0) {
+      // Ordenar por el mejor score de coincidencia
+      candidatosConTexto.sort((a, bCand) => {
         const scoreA = calcularScoreTexto(bankTx.descripcion, a.tercero, a.observaciones);
         const scoreB = calcularScoreTexto(bankTx.descripcion, bCand.tercero, bCand.observaciones);
         return scoreB - scoreA;
       });
 
-      const mejorSiigo = candidatos[0];
-      const scoreObtenido = calcularScoreTexto(bankTx.descripcion, mejorSiigo.tercero, mejorSiigo.observaciones);
-
+      const mejorSiigo = candidatosConTexto[0];
       matchedBankIds.add(bankTx.id);
       matchedSiigoIds.add(mejorSiigo.id);
 
@@ -62,12 +62,42 @@ export const conciliarMovimientos = (
         siigoTransaction: mejorSiigo,
         estado: 'CONCILIADO',
         diferencia: diffMonto,
-        motivo:
-          scoreObtenido > 0
-            ? 'Coincidencia exacta 1:1 por monto y tercero'
-            : diffMonto > 0
-            ? 'Coincidencia 1:1 con ajuste menor de decimales'
-            : 'Coincidencia exacta 1:1 por monto',
+        motivo: diffMonto > 0 
+          ? 'Coincidencia por tercero con ajuste menor de decimales' 
+          : 'Coincidencia exacta 1:1 por monto y tercero',
+      });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // FASE 1B: Cruce 1:1 por Monto Puro (Para registros que no tienen coincidencia de texto explícita)
+  // -------------------------------------------------------------
+  bankTransactions.forEach((bankTx) => {
+    if (matchedBankIds.has(bankTx.id)) return;
+
+    const candidatosMonto = siigoTransactions.filter((siigoTx) => {
+      if (matchedSiigoIds.has(siigoTx.id)) return false;
+      const mismaNaturaleza = bankTx.tipo === siigoTx.tipo;
+      const diferenciaMonto = Math.abs(bankTx.monto - siigoTx.monto);
+      return mismaNaturaleza && diferenciaMonto <= 2.0;
+    });
+
+    if (candidatosMonto.length > 0) {
+      const mejorSiigo = candidatosMonto[0];
+      matchedBankIds.add(bankTx.id);
+      matchedSiigoIds.add(mejorSiigo.id);
+
+      const diffMonto = Math.abs(bankTx.monto - mejorSiigo.monto);
+
+      conciliationItems.push({
+        id: `match-${bankTx.id}-${mejorSiigo.id}`,
+        bankTransaction: bankTx,
+        siigoTransaction: mejorSiigo,
+        estado: 'CONCILIADO',
+        diferencia: diffMonto,
+        motivo: diffMonto > 0 
+          ? 'Coincidencia 1:1 con ajuste menor de decimales' 
+          : 'Coincidencia exacta 1:1 por monto',
       });
     }
   });
