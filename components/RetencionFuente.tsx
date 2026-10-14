@@ -1,7 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet, Calculator, FileText, Search, AlertCircle, RefreshCw, UserCheck, Calendar, Percent, Grid, ArrowDownCircle, Download } from 'lucide-react';
+import {
+  FileSpreadsheet,
+  Calculator,
+  FileText,
+  Search,
+  AlertCircle,
+  RefreshCw,
+  UserCheck,
+  Calendar,
+  Percent,
+  Grid,
+  ArrowDownCircle,
+  Download,
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { extraerBaseLimpiar } from '../lib/excel';
 
@@ -45,10 +58,18 @@ const MAPA_MESES: Record<string, string> = {
   '12': 'DICIEMBRE',
 };
 
-const evaluarTipoPersona = (nit: string, cuentaCode: string): 'NATURAL' | 'JURIDICA' => {
-  if (cuentaCode.startsWith('236505') || cuentaCode.startsWith('236506')) return 'NATURAL';
+const evaluarTipoPersona = (
+  nit: string,
+  cuentaCode: string
+): 'NATURAL' | 'JURIDICA' => {
+  if (cuentaCode.startsWith('236505') || cuentaCode.startsWith('236506')) {
+    return 'NATURAL';
+  }
   const nitClean = nit.replace(/\./g, '').replace(/-/g, '').trim();
-  if (nitClean.length >= 9 && (nitClean.startsWith('8') || nitClean.startsWith('9'))) {
+  if (
+    nitClean.length >= 9 &&
+    (nitClean.startsWith('8') || nitClean.startsWith('9'))
+  ) {
     return 'JURIDICA';
   }
   return 'NATURAL';
@@ -67,11 +88,14 @@ export default function RetencionFuente() {
   // Estados de Nómina
   const [pestañasNomina, setPestañasNomina] = useState<string[]>([]);
   const [pestañaSeleccionada, setPestañaSeleccionada] = useState<string>('');
-  const [workbookNomina, setWorkbookNomina] = useState<XLSX.WorkBook | null>(null);
+  const [workbookNomina, setWorkbookNomina] = useState<XLSX.WorkBook | null>(
+    null
+  );
 
   // Estados de Autorrenta 1,1%
   const [valorCuenta4Sistema, setValorCuenta4Sistema] = useState<number>(0);
-  const [acumuladoAnteriorInput, setAcumuladoAnteriorInput] = useState<number>(3735697000);
+  const [acumuladoAnteriorInput, setAcumuladoAnteriorInput] =
+    useState<number>(3735697000);
 
   const detectarMesAuxiliar = (items: MovimientoRetencion[]): string => {
     for (const item of items) {
@@ -95,7 +119,10 @@ export default function RetencionFuente() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
+      const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        raw: true,
+      });
 
       const parsedItems: MovimientoRetencion[] = [];
 
@@ -153,12 +180,17 @@ export default function RetencionFuente() {
 
       if (workbookNomina) {
         const mesDetectado = detectarMesAuxiliar(parsedItems);
-        const targetSheet = workbookNomina.SheetNames.find((s) => s.toUpperCase().trim() === mesDetectado) || workbookNomina.SheetNames[0];
+        const targetSheet =
+          workbookNomina.SheetNames.find(
+            (s) => s.toUpperCase().trim() === mesDetectado
+          ) || workbookNomina.SheetNames[0];
         setPestañaSeleccionada(targetSheet);
         procesarCruceNomina(workbookNomina, parsedItems, targetSheet);
       }
     } catch (err) {
-      setError('Error al procesar el archivo auxiliar de Retención en la Fuente.');
+      setError(
+        'Error al procesar el archivo auxiliar de Retención en la Fuente.'
+      );
     }
   };
 
@@ -179,7 +211,9 @@ export default function RetencionFuente() {
       setPestañasNomina(wb.SheetNames);
 
       const mesDetectado = detectarMesAuxiliar(movimientos);
-      const targetSheet = wb.SheetNames.find((s) => s.toUpperCase().trim() === mesDetectado) || wb.SheetNames[0];
+      const targetSheet =
+        wb.SheetNames.find((s) => s.toUpperCase().trim() === mesDetectado) ||
+        wb.SheetNames[0];
 
       setPestañaSeleccionada(targetSheet);
       procesarCruceNomina(wb, movimientos, targetSheet);
@@ -188,11 +222,18 @@ export default function RetencionFuente() {
     }
   };
 
-  const procesarCruceNomina = (wb: XLSX.WorkBook, itemsBase: MovimientoRetencion[], sheetName: string) => {
+  const procesarCruceNomina = (
+    wb: XLSX.WorkBook,
+    itemsBase: MovimientoRetencion[],
+    sheetName: string
+  ) => {
     const worksheet = wb.Sheets[sheetName];
     if (!worksheet) return;
 
-    const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
+    const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+      header: 1,
+      raw: true,
+    });
 
     const mapaNitBase: Record<string, number> = {};
     const mapaNombreBase: Record<string, number> = {};
@@ -200,12 +241,21 @@ export default function RetencionFuente() {
     rawData.forEach((row) => {
       if (!row || row.length < 14) return;
 
-      const docNit = String(row[0] ?? '').trim().replace(/\./g, '').replace(/-/g, '');
-      const nombreEmpleado = String(row[1] ?? '').trim().toUpperCase();
+      const docNit = String(row[0] ?? '')
+        .trim()
+        .replace(/\./g, '')
+        .replace(/-/g, '');
+      const nombreEmpleado = String(row[1] ?? '')
+        .trim()
+        .toUpperCase();
       const rawBaseColN = row[13];
 
       let baseNum = 0;
-      if (rawBaseColN !== undefined && rawBaseColN !== null && String(rawBaseColN) !== '#ERROR!') {
+      if (
+        rawBaseColN !== undefined &&
+        rawBaseColN !== null &&
+        String(rawBaseColN) !== '#ERROR!'
+      ) {
         baseNum = parseFloat(String(rawBaseColN).replace(/,/g, '')) || 0;
       }
 
@@ -223,14 +273,22 @@ export default function RetencionFuente() {
 
       let baseEncontrada = 0;
 
-      if (m.nit && mapaNitBase[m.nit.replace(/\./g, '').replace(/-/g, '')] !== undefined) {
-        baseEncontrada = mapaNitBase[m.nit.replace(/\./g, '').replace(/-/g, '')];
+      if (
+        m.nit &&
+        mapaNitBase[m.nit.replace(/\./g, '').replace(/-/g, '')] !== undefined
+      ) {
+        baseEncontrada =
+          mapaNitBase[m.nit.replace(/\./g, '').replace(/-/g, '')];
       } else {
         const terceroUpper = m.tercero.toUpperCase();
         for (const [nomKey, baseVal] of Object.entries(mapaNombreBase)) {
-          const tokensSiigo = terceroUpper.split(' ').filter((t) => t.length > 2);
+          const tokensSiigo = terceroUpper
+            .split(' ')
+            .filter((t) => t.length > 2);
           const tokensNomina = nomKey.split(' ').filter((t) => t.length > 2);
-          const coincidencias = tokensSiigo.filter((t) => tokensNomina.includes(t));
+          const coincidencias = tokensSiigo.filter((t) =>
+            tokensNomina.includes(t)
+          );
 
           if (coincidencias.length >= 2) {
             baseEncontrada = baseVal;
@@ -266,7 +324,10 @@ export default function RetencionFuente() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
+      const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        raw: true,
+      });
 
       let valorIngresosCuenta4 = 0;
 
@@ -278,7 +339,8 @@ export default function RetencionFuente() {
         if (codCuenta === '4') {
           const rawVal = row[2];
           if (rawVal !== undefined && rawVal !== null) {
-            valorIngresosCuenta4 = parseFloat(String(rawVal).replace(/,/g, '')) || 0;
+            valorIngresosCuenta4 =
+              parseFloat(String(rawVal).replace(/,/g, '')) || 0;
           }
           break;
         }
@@ -297,18 +359,6 @@ export default function RetencionFuente() {
     }
   };
 
-  const handleReset = () => {
-    setMovimientos([]);
-    setFileName(null);
-    setNominaFileName(null);
-    setErFileName(null);
-    setPestañasNomina([]);
-    setPestañaSeleccionada('');
-    setWorkbookNomina(null);
-    setValorCuenta4Sistema(0);
-    setError(null);
-  };
-
   const formatCOP = (val: number) => {
     return new Intl.NumberFormat('es-CO', {
       style: 'currency',
@@ -320,23 +370,70 @@ export default function RetencionFuente() {
   // --------------------------------------------------------------------------
   // CÁLCULO DINÁMICO DE AUTORRETENCIÓN (1,1%)
   // --------------------------------------------------------------------------
-  const diferenciaBrutaAutorrenta = valorCuenta4Sistema - acumuladoAnteriorInput;
-  const baseAutorrentaAproxMil = diferenciaBrutaAutorrenta > 0 ? Math.round(diferenciaBrutaAutorrenta / 1000) * 1000 : 0;
+  const diferenciaBrutaAutorrenta =
+    valorCuenta4Sistema - acumuladoAnteriorInput;
+  const baseAutorrentaAproxMil =
+    diferenciaBrutaAutorrenta > 0
+      ? Math.round(diferenciaBrutaAutorrenta / 1000) * 1000
+      : 0;
   const autorrentaCalculadaExacta = baseAutorrentaAproxMil * 0.011;
-  const autorrentaFormulario350 = Math.round(autorrentaCalculadaExacta / 1000) * 1000;
+  const autorrentaFormulario350 =
+    Math.round(autorrentaCalculadaExacta / 1000) * 1000;
 
   // --------------------------------------------------------------------------
   // CONSTRUCCIÓN DEL CUADRO COMPARATIVO FORMULARIO 350 (DIAN)
   // --------------------------------------------------------------------------
   const generarCuadroDIAN = (): RowCuadroDIAN[] => {
     const conceptos: Record<string, RowCuadroDIAN> = {
-      TRABAJO: { concepto: 'TRABAJO (236505 y 236506)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      HONORARIOS: { concepto: 'HONORARIOS (236515)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      SERVICIOS: { concepto: 'SERVICIOS (236525)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      ARR_MUEBLES: { concepto: 'ARRENDAMIENTO MUEBLES (23653001)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      ARR_INMUEBLES: { concepto: 'ARRENDAMIENTO INMUEBLES (23653003)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      COMPRAS: { concepto: 'COMPRAS (236540)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
-      RENDIMIENTOS: { concepto: 'RENDIMIENTOS FINANCIEROS (236545)', natBase: 0, natRet: 0, jurBase: 0, jurRet: 0 },
+      TRABAJO: {
+        concepto: 'TRABAJO (236505 y 236506)',
+        natBase: 0,
+        natRet: 0,
+        jurBase: 0,
+        jurRet: 0,
+      },
+      HONORARIOS: {
+        concepto: 'HONORARIOS (236515 y 236520)',
+        natBase: 0,
+        natRet: 0,
+        jurBase: 0,
+        jurRet: 0,
+      },
+      SERVICIOS: {
+        concepto: 'SERVICIOS (236525)',
+        natBase: 0,
+        natRet: 0,
+        jurBase: 0,
+        jurRet: 0,
+      },
+      ARR_MUEBLES: {
+        concepto: 'ARRENDAMIENTO MUEBLES (23653001)',
+        natBase: 0,
+        natRet: 0,
+        jurBase: 0,
+        jurRet: 0,
+      },
+      ARR_INMUEBLES: {
+        concepto: 'ARRENDAMIENTO INMUEBLES (23653003)',
+        natBase: 0,
+        natRet: 0,
+        jurBase: 0,
+        jurRet: 0,
+      },
+      COMPRAS: {
+        concepto: 'COMPRAS (236540)',
+        natBase: 0,
+        natRet: 0,
+        jurBase: 0,
+        jurRet: 0,
+      },
+      RENDIMIENTOS: {
+        concepto: 'RENDIMIENTOS FINANCIEROS (236545)',
+        natBase: 0,
+        natRet: 0,
+        jurBase: 0,
+        jurRet: 0,
+      },
     };
 
     movimientos.forEach((m) => {
@@ -346,13 +443,21 @@ export default function RetencionFuente() {
       const cCode = m.cuentaCode;
 
       let key = '';
-      if (cCode.startsWith('236505') || cCode.startsWith('236506')) key = 'TRABAJO';
-      else if (cCode.startsWith('236515')) key = 'HONORARIOS';
-      else if (cCode.startsWith('236525')) key = 'SERVICIOS';
-      else if (cCode.startsWith('23653001')) key = 'ARR_MUEBLES';
-      else if (cCode.startsWith('23653003')) key = 'ARR_INMUEBLES';
-      else if (cCode.startsWith('236540')) key = 'COMPRAS';
-      else if (cCode.startsWith('236545')) key = 'RENDIMIENTOS';
+      if (cCode.startsWith('236505') || cCode.startsWith('236506')) {
+        key = 'TRABAJO';
+      } else if (cCode.startsWith('236515') || cCode.startsWith('236520')) {
+        key = 'HONORARIOS';
+      } else if (cCode.startsWith('236525')) {
+        key = 'SERVICIOS';
+      } else if (cCode.startsWith('23653001')) {
+        key = 'ARR_MUEBLES';
+      } else if (cCode.startsWith('23653003')) {
+        key = 'ARR_INMUEBLES';
+      } else if (cCode.startsWith('236540')) {
+        key = 'COMPRAS';
+      } else if (cCode.startsWith('236545')) {
+        key = 'RENDIMIENTOS';
+      }
 
       if (key && conceptos[key]) {
         if (esNat) {
@@ -370,20 +475,28 @@ export default function RetencionFuente() {
 
   const cuadroDIAN = generarCuadroDIAN();
 
-  // --------------------------------------------------------------------------
-  // LÓGICA DE DEVOLUCIONES (RENGLÓN 129 Y RENGLÓN 133 DIAN)
-  // --------------------------------------------------------------------------
+  // Devoluciones 2365 (Renglón 129 DIAN)
   const devoluciones2365 = movimientos.filter(
-    (m) => m.cuentaCode.startsWith('2365') && m.debito > 0 && !m.tercero.toUpperCase().includes('DIAN')
+    (m) =>
+      m.cuentaCode.startsWith('2365') &&
+      m.debito > 0 &&
+      !m.tercero.toUpperCase().includes('DIAN')
   );
-  const totalDevoluciones2365 = devoluciones2365.reduce((acc, m) => acc + m.debito, 0);
+  const totalDevoluciones2365 = devoluciones2365.reduce(
+    (acc, m) => acc + m.debito,
+    0
+  );
 
   // ReteIVA (Cuentas 2367)
   const reteIVA15 = movimientos.filter(
-    (m) => m.cuentaCode === '23670101' && !m.tercero.toUpperCase().includes('DIAN')
+    (m) =>
+      m.cuentaCode === '23670101' &&
+      !m.tercero.toUpperCase().includes('DIAN')
   );
   const reteIVA100 = movimientos.filter(
-    (m) => m.cuentaCode === '23670103' && !m.tercero.toUpperCase().includes('DIAN')
+    (m) =>
+      m.cuentaCode === '23670103' &&
+      !m.tercero.toUpperCase().includes('DIAN')
   );
 
   const baseReteIVA15 = reteIVA15.reduce((acc, m) => acc + m.baseLimpia, 0);
@@ -392,12 +505,22 @@ export default function RetencionFuente() {
   const baseReteIVA100 = reteIVA100.reduce((acc, m) => acc + m.baseLimpia, 0);
   const retReteIVA100 = reteIVA100.reduce((acc, m) => acc + m.credito, 0);
 
+  // Devoluciones ReteIVA (Renglón 133 DIAN)
   const devoluciones2367 = movimientos.filter(
-    (m) => m.cuentaCode.startsWith('2367') && m.debito > 0 && !m.tercero.toUpperCase().includes('DIAN')
+    (m) =>
+      m.cuentaCode.startsWith('2367') &&
+      m.debito > 0 &&
+      !m.tercero.toUpperCase().includes('DIAN')
   );
-  const totalDevoluciones2367 = devoluciones2367.reduce((acc, m) => acc + m.debito, 0);
+  const totalDevoluciones2367 = devoluciones2367.reduce(
+    (acc, m) => acc + m.debito,
+    0
+  );
 
-  const totalRetencionesTerceros = cuadroDIAN.reduce((acc, r) => acc + r.natRet + r.jurRet, 0);
+  const totalRetencionesTerceros = cuadroDIAN.reduce(
+    (acc, r) => acc + r.natRet + r.jurRet,
+    0
+  );
   const totalReteIVATotal = retReteIVA15 + retReteIVA100;
 
   const totalGeneralBrutoNeto =
@@ -407,12 +530,12 @@ export default function RetencionFuente() {
     totalDevoluciones2365 -
     totalDevoluciones2367;
 
-  const totalGeneralAproxDIAN = Math.round(totalGeneralBrutoNeto / 1000) * 1000;
-
-  const cuentasUnicas = Array.from(new Set(movimientos.map((m) => m.cuentaCode)));
+  const totalGeneralAproxDIAN =
+    Math.round(totalGeneralBrutoNeto / 1000) * 1000;
 
   const movimientosFiltrados = movimientos.filter((m) => {
-    const cumpleCuenta = cuentaFiltro === 'TODAS' || m.cuentaCode === cuentaFiltro;
+    const cumpleCuenta =
+      cuentaFiltro === 'TODAS' || m.cuentaCode === cuentaFiltro;
     const term = searchTerm.toLowerCase();
     const cumpleSearch =
       !searchTerm ||
@@ -424,17 +547,20 @@ export default function RetencionFuente() {
     return cumpleCuenta && cumpleSearch;
   });
 
-  // --------------------------------------------------------------------------
-  // FUNCIÓN PARA EXPORTAR A EXCEL EL INFORME COMPLETO
-  // --------------------------------------------------------------------------
+  // Exportar a Excel el Informe Completo Formulario 350
   const exportarExcelDIAN = () => {
     if (movimientos.length === 0) return;
 
-    // HOJA 1: RESUMEN FORMULARIO 350
     const rowsResumen = [
       ['DISCRIMINACIÓN RETENCIÓN EN LA FUENTE (FORMULARIO 350 DIAN)'],
       [''],
-      ['CONCEPTO', 'PERSONA NATURAL - BASE', 'PERSONA NATURAL - RETENCIÓN', 'PERSONA JURÍDICA - BASE', 'PERSONA JURÍDICA - RETENCIÓN'],
+      [
+        'CONCEPTO',
+        'PERSONA NATURAL - BASE',
+        'PERSONA NATURAL - RETENCIÓN',
+        'PERSONA JURÍDICA - BASE',
+        'PERSONA JURÍDICA - RETENCIÓN',
+      ],
     ];
 
     cuadroDIAN.forEach((r) => {
@@ -442,20 +568,78 @@ export default function RetencionFuente() {
     });
 
     rowsResumen.push(['']);
-    rowsResumen.push(['SUBTOTAL RETENCIONES A TERCEROS', '', totalRetencionesTerceros, '', '']);
-    rowsResumen.push(['AUTORRETENCIÓN ESPECIAL (1,1%)', 'Base:', baseAutorrentaAproxMil, 'Retención:', autorrentaFormulario350]);
-    rowsResumen.push(['RETEIVA 15% (Cuenta 23670101)', 'Base:', baseReteIVA15, 'Retención:', retReteIVA15]);
-    rowsResumen.push(['RETEIVA 100% (Cuenta 23670103)', 'Base:', baseReteIVA100, 'Retención:', retReteIVA100]);
-    rowsResumen.push(['RENGLÓN 129 - DEVOLUCIONES DE RETENCIONES (2365)', '', -totalDevoluciones2365, '', '']);
-    rowsResumen.push(['RENGLÓN 133 - DEVOLUCIONES DE RETEIVA (2367)', '', -totalDevoluciones2367, '', '']);
-    rowsResumen.push(['TOTAL RENTAS Y RETENCIONES BRUTO NETO', '', totalGeneralBrutoNeto, '', '']);
-    rowsResumen.push(['TOTAL APROXIMADO A PAGAR (FORMULARIO 350 DIAN)', '', totalGeneralAproxDIAN, '', '']);
+    rowsResumen.push([
+      'SUBTOTAL RETENCIONES A TERCEROS',
+      '',
+      totalRetencionesTerceros,
+      '',
+      '',
+    ]);
+    rowsResumen.push([
+      'AUTORRETENCIÓN ESPECIAL (1,1%)',
+      'Base:',
+      baseAutorrentaAproxMil,
+      'Retención:',
+      autorrentaFormulario350,
+    ]);
+    rowsResumen.push([
+      'RETEIVA 15% (Cuenta 23670101)',
+      'Base:',
+      baseReteIVA15,
+      'Retención:',
+      retReteIVA15,
+    ]);
+    rowsResumen.push([
+      'RETEIVA 100% (Cuenta 23670103)',
+      'Base:',
+      baseReteIVA100,
+      'Retención:',
+      retReteIVA100,
+    ]);
+    rowsResumen.push([
+      'RENGLÓN 129 - DEVOLUCIONES DE RETENCIONES (2365)',
+      '',
+      -totalDevoluciones2365,
+      '',
+      '',
+    ]);
+    rowsResumen.push([
+      'RENGLÓN 133 - DEVOLUCIONES DE RETEIVA (2367)',
+      '',
+      -totalDevoluciones2367,
+      '',
+      '',
+    ]);
+    rowsResumen.push([
+      'TOTAL RENTAS Y RETENCIONES BRUTO NETO',
+      '',
+      totalGeneralBrutoNeto,
+      '',
+      '',
+    ]);
+    rowsResumen.push([
+      'TOTAL APROXIMADO A PAGAR (FORMULARIO 350 DIAN)',
+      '',
+      totalGeneralAproxDIAN,
+      '',
+      '',
+    ]);
 
     const wsResumen = XLSX.utils.aoa_to_sheet(rowsResumen);
 
-    // HOJA 2: DETALLE MOVIMIENTOS
     const rowsDetalle = [
-      ['Cuenta', 'Fecha', 'Comprobante', 'NIT', 'Tercero', 'Tipo Persona', 'Origen Base', 'Base Extraída / Nómina', 'Retención (Crédito)', 'Devolución (Débito)'],
+      [
+        'Cuenta',
+        'Fecha',
+        'Comprobante',
+        'NIT',
+        'Tercero',
+        'Tipo Persona',
+        'Origen Base',
+        'Base Extraída / Nómina',
+        'Retención (Crédito)',
+        'Devolución (Débito)',
+      ],
     ];
 
     movimientos.forEach((m) => {
@@ -479,41 +663,57 @@ export default function RetencionFuente() {
     XLSX.utils.book_append_sheet(wb, wsResumen, 'Formulario 350 DIAN');
     XLSX.utils.book_append_sheet(wb, wsDetalle, 'Detalle Movimientos');
 
-    XLSX.writeFile(wb, `Informe_Retencion_Fuente_350_${pestañaSeleccionada || 'JULIO'}.xlsx`);
+    XLSX.writeFile(
+      wb,
+      `Informe_Retencion_Fuente_350_${pestañaSeleccionada || 'JULIO'}.xlsx`
+    );
   };
 
   return (
     <div className="space-y-6">
       {/* 1. Tarjetas de Carga */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Card 1: Auxiliar Siigo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
             <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-indigo-100">
               <Calculator className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-slate-800 text-xs">1. Auxiliar Retención Siigo</h3>
+            <h3 className="font-bold text-slate-800 text-xs">
+              1. Auxiliar Retención Siigo
+            </h3>
             <p className="text-[11px] text-slate-500 mt-1 mb-3">
-              {fileName ? `✓ ${fileName}` : 'Sube el Excel de cuentas 2365 / 2367.'}
+              {fileName
+                ? `✓ ${fileName}`
+                : 'Sube el Excel de cuentas 2365 / 2367.'}
             </p>
           </div>
 
           <label className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4" />
             {fileName ? 'Cambiar Auxiliar' : 'Cargar Auxiliar'}
-            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              className="hidden"
+              onChange={(e) =>
+                e.target.files?.[0] && handleFileUpload(e.target.files[0])
+              }
+            />
           </label>
         </div>
 
-        {/* Card 2: Nómina de Apoyo */}
         <div className="bg-white p-6 rounded-2xl border-2 border-emerald-100 shadow-sm text-center flex flex-col items-center justify-between">
           <div>
             <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-emerald-100">
               <UserCheck className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-slate-800 text-xs">2. Nómina de Apoyo</h3>
+            <h3 className="font-bold text-slate-800 text-xs">
+              2. Nómina de Apoyo
+            </h3>
             <p className="text-[11px] text-slate-500 mt-1 mb-2">
-              {nominaFileName ? `✓ ${nominaFileName}` : 'Carga la Nómina para extraer bases de empleados.'}
+              {nominaFileName
+                ? `✓ ${nominaFileName}`
+                : 'Carga la Nómina para extraer bases de empleados.'}
             </p>
 
             {pestañasNomina.length > 0 && (
@@ -535,53 +735,88 @@ export default function RetencionFuente() {
             )}
           </div>
 
-          <label className={`text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 mt-2 ${movimientos.length === 0 ? 'bg-slate-300 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+          <label
+            className={`text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center gap-2 mt-2 ${
+              movimientos.length === 0
+                ? 'bg-slate-300 cursor-not-allowed'
+                : 'bg-emerald-600 hover:bg-emerald-700'
+            }`}
+          >
             <FileSpreadsheet className="w-4 h-4" />
             {nominaFileName ? 'Cambiar Nómina' : 'Cargar Nómina'}
-            <input type="file" accept=".xlsx, .xls" disabled={movimientos.length === 0} className="hidden" onChange={(e) => e.target.files?.[0] && handleNominaUpload(e.target.files[0])} />
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              disabled={movimientos.length === 0}
+              className="hidden"
+              onChange={(e) =>
+                e.target.files?.[0] && handleNominaUpload(e.target.files[0])
+              }
+            />
           </label>
         </div>
 
-        {/* Card 3: Estado de Resultados con Entrada Manual de Acumulado Anterior */}
         <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-sm flex flex-col justify-between space-y-3">
           <div className="text-center">
             <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-100">
               <Percent className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-slate-800 text-xs">3. Estado de Resultados (Autorrenta)</h3>
+            <h3 className="font-bold text-slate-800 text-xs">
+              3. Estado de Resultados (Autorrenta)
+            </h3>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              {erFileName ? `✓ ${erFileName}` : 'Carga ER para obtener Cuenta 4.'}
+              {erFileName
+                ? `✓ ${erFileName}`
+                : 'Carga ER para obtener Cuenta 4.'}
             </p>
           </div>
 
-          {/* Formulario de Entrada de Acumulado Anterior e Ingresos Sistema */}
           <div className="bg-blue-50/60 p-3 rounded-xl border border-blue-100 space-y-2 text-left text-[11px]">
             <div className="flex justify-between items-center">
-              <span className="font-bold text-slate-600">Sistema (Cuenta 4 ER):</span>
-              <span className="font-mono font-bold text-blue-900">{formatCOP(valorCuenta4Sistema)}</span>
+              <span className="font-bold text-slate-600">
+                Sistema (Cuenta 4 ER):
+              </span>
+              <span className="font-mono font-bold text-blue-900">
+                {formatCOP(valorCuenta4Sistema)}
+              </span>
             </div>
 
             <div className="space-y-1">
-              <label className="block font-bold text-slate-700">Total Acumulado Anterior:</label>
+              <label className="block font-bold text-slate-700">
+                Total Acumulado Anterior:
+              </label>
               <input
                 type="number"
                 value={acumuladoAnteriorInput}
-                onChange={(e) => setAcumuladoAnteriorInput(Number(e.target.value) || 0)}
+                onChange={(e) =>
+                  setAcumuladoAnteriorInput(Number(e.target.value) || 0)
+                }
                 placeholder="Ej: 3735697000"
                 className="w-full bg-white border border-blue-300 font-mono font-bold text-slate-800 px-2 py-1 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-xs"
               />
             </div>
 
             <div className="flex justify-between items-center pt-1 border-t border-blue-200/60">
-              <span className="font-bold text-slate-700">Base Aprox. al Mil:</span>
-              <span className="font-mono font-bold text-indigo-700">{formatCOP(baseAutorrentaAproxMil)}</span>
+              <span className="font-bold text-slate-700">
+                Base Aprox. al Mil:
+              </span>
+              <span className="font-mono font-bold text-indigo-700">
+                {formatCOP(baseAutorrentaAproxMil)}
+              </span>
             </div>
           </div>
 
           <label className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition-all shadow-md inline-flex items-center justify-center gap-2">
             <FileSpreadsheet className="w-4 h-4" />
             {erFileName ? 'Cambiar Estado Resultados' : 'Cargar Estado Resultados'}
-            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleERFileUpload(e.target.files[0])} />
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              className="hidden"
+              onChange={(e) =>
+                e.target.files?.[0] && handleERFileUpload(e.target.files[0])
+              }
+            />
           </label>
         </div>
       </div>
@@ -598,7 +833,8 @@ export default function RetencionFuente() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
           <div className="bg-slate-800 text-white p-4 font-bold text-sm flex justify-between items-center">
             <span className="flex items-center gap-2">
-              <Grid className="w-4 h-4 text-indigo-400" /> DISCRIMINACIÓN RETENCIÓN EN LA FUENTE (PERSONA NATURAL VS JURÍDICA)
+              <Grid className="w-4 h-4 text-indigo-400" /> DISCRIMINACIÓN
+              RETENCIÓN EN LA FUENTE (PERSONA NATURAL VS JURÍDICA)
             </span>
 
             <div className="flex items-center gap-3">
@@ -608,7 +844,9 @@ export default function RetencionFuente() {
               >
                 <Download className="w-3.5 h-3.5" /> Descargar Excel
               </button>
-              <span className="bg-slate-700 px-3 py-1 rounded-lg text-xs font-mono">Formulario 350 DIAN</span>
+              <span className="bg-slate-700 px-3 py-1 rounded-lg text-xs font-mono">
+                Formulario 350 DIAN
+              </span>
             </div>
           </div>
 
@@ -619,14 +857,19 @@ export default function RetencionFuente() {
                   <th className="p-3 border-r border-slate-200" colSpan={3}>
                     PERSONA NATURAL
                   </th>
-                  <th className="p-3 text-center border-r border-slate-200" colSpan={3}>
+                  <th
+                    className="p-3 text-center border-r border-slate-200"
+                    colSpan={3}
+                  >
                     PERSONA JURÍDICA
                   </th>
                 </tr>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
                   <th className="p-2.5">CONCEPTO</th>
                   <th className="p-2.5 text-right">BASE</th>
-                  <th className="p-2.5 text-right border-r border-slate-200">RETENCIÓN</th>
+                  <th className="p-2.5 text-right border-r border-slate-200">
+                    RETENCIÓN
+                  </th>
                   <th className="p-2.5">CONCEPTO</th>
                   <th className="p-2.5 text-right">BASE</th>
                   <th className="p-2.5 text-right">RETENCIÓN</th>
@@ -635,13 +878,21 @@ export default function RetencionFuente() {
               <tbody className="divide-y divide-slate-100 font-medium">
                 {cuadroDIAN.map((r, idx) => (
                   <tr key={idx} className="hover:bg-slate-50">
-                    <td className="p-2.5 font-bold text-slate-700">{r.concepto}</td>
-                    <td className="p-2.5 text-right font-mono">{r.natBase > 0 ? formatCOP(r.natBase) : '-'}</td>
+                    <td className="p-2.5 font-bold text-slate-700">
+                      {r.concepto}
+                    </td>
+                    <td className="p-2.5 text-right font-mono">
+                      {r.natBase > 0 ? formatCOP(r.natBase) : '-'}
+                    </td>
                     <td className="p-2.5 text-right font-mono font-bold text-emerald-700 border-r border-slate-200">
                       {r.natRet > 0 ? formatCOP(r.natRet) : '-'}
                     </td>
-                    <td className="p-2.5 font-bold text-slate-700">{r.concepto}</td>
-                    <td className="p-2.5 text-right font-mono">{r.jurBase > 0 ? formatCOP(r.jurBase) : '-'}</td>
+                    <td className="p-2.5 font-bold text-slate-700">
+                      {r.concepto}
+                    </td>
+                    <td className="p-2.5 text-right font-mono">
+                      {r.jurBase > 0 ? formatCOP(r.jurBase) : '-'}
+                    </td>
                     <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
                       {r.jurRet > 0 ? formatCOP(r.jurRet) : '-'}
                     </td>
@@ -653,7 +904,10 @@ export default function RetencionFuente() {
                   <td className="p-2.5" colSpan={2}>
                     SUBTOTAL RETENCIONES A TERCEROS
                   </td>
-                  <td className="p-2.5 text-right font-mono text-emerald-800 border-r border-slate-200" colSpan={4}>
+                  <td
+                    className="p-2.5 text-right font-mono text-emerald-800 border-r border-slate-200"
+                    colSpan={4}
+                  >
                     {formatCOP(totalRetencionesTerceros)}
                   </td>
                 </tr>
@@ -663,10 +917,16 @@ export default function RetencionFuente() {
                   <td className="p-2.5" colSpan={2}>
                     AUTORRETENCIÓN ESPECIAL (1,1%)
                   </td>
-                  <td className="p-2.5 text-right font-mono text-blue-900" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono text-blue-900"
+                    colSpan={2}
+                  >
                     Base: {formatCOP(baseAutorrentaAproxMil)}
                   </td>
-                  <td className="p-2.5 text-right font-mono font-black text-blue-900" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono font-black text-blue-900"
+                    colSpan={2}
+                  >
                     {formatCOP(autorrentaFormulario350)}
                   </td>
                 </tr>
@@ -676,10 +936,16 @@ export default function RetencionFuente() {
                   <td className="p-2.5" colSpan={2}>
                     RETEIVA 15% (Cuenta 23670101)
                   </td>
-                  <td className="p-2.5 text-right font-mono text-emerald-900" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono text-emerald-900"
+                    colSpan={2}
+                  >
                     Base: {formatCOP(baseReteIVA15)}
                   </td>
-                  <td className="p-2.5 text-right font-mono font-black text-emerald-900" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono font-black text-emerald-900"
+                    colSpan={2}
+                  >
                     {formatCOP(retReteIVA15)}
                   </td>
                 </tr>
@@ -689,10 +955,16 @@ export default function RetencionFuente() {
                   <td className="p-2.5" colSpan={2}>
                     RETEIVA 100% (Cuenta 23670103)
                   </td>
-                  <td className="p-2.5 text-right font-mono text-emerald-900" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono text-emerald-900"
+                    colSpan={2}
+                  >
                     Base: {formatCOP(baseReteIVA100)}
                   </td>
-                  <td className="p-2.5 text-right font-mono font-black text-emerald-900" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono font-black text-emerald-900"
+                    colSpan={2}
+                  >
                     {formatCOP(retReteIVA100)}
                   </td>
                 </tr>
@@ -703,10 +975,16 @@ export default function RetencionFuente() {
                     <ArrowDownCircle className="w-3.5 h-3.5 text-rose-600" />
                     RENGLÓN 129 - DEVOLUCIONES DE RETENCIONES (Cuentas 2365)
                   </td>
-                  <td className="p-2.5 text-right font-mono text-rose-700" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono text-rose-700"
+                    colSpan={2}
+                  >
                     {devoluciones2365.length} reg.
                   </td>
-                  <td className="p-2.5 text-right font-mono font-black text-rose-700" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono font-black text-rose-700"
+                    colSpan={2}
+                  >
                     - {formatCOP(totalDevoluciones2365)}
                   </td>
                 </tr>
@@ -717,10 +995,16 @@ export default function RetencionFuente() {
                     <ArrowDownCircle className="w-3.5 h-3.5 text-rose-600" />
                     RENGLÓN 133 - DEVOLUCIONES DE RETEIVA (Cuentas 2367)
                   </td>
-                  <td className="p-2.5 text-right font-mono text-rose-700" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono text-rose-700"
+                    colSpan={2}
+                  >
                     {devoluciones2367.length} reg.
                   </td>
-                  <td className="p-2.5 text-right font-mono font-black text-rose-700" colSpan={2}>
+                  <td
+                    className="p-2.5 text-right font-mono font-black text-rose-700"
+                    colSpan={2}
+                  >
                     - {formatCOP(totalDevoluciones2367)}
                   </td>
                 </tr>
@@ -729,7 +1013,10 @@ export default function RetencionFuente() {
                   <td className="p-3" colSpan={2}>
                     TOTAL RENTAS Y RETENCIONES BRUTO NETO
                   </td>
-                  <td className="p-3 text-right font-mono text-emerald-400" colSpan={4}>
+                  <td
+                    className="p-3 text-right font-mono text-emerald-400"
+                    colSpan={4}
+                  >
                     {formatCOP(totalGeneralBrutoNeto)}
                   </td>
                 </tr>
@@ -738,7 +1025,10 @@ export default function RetencionFuente() {
                   <td className="p-3" colSpan={2}>
                     TOTAL APROXIMADO A PAGAR (FORMULARIO 350 DIAN)
                   </td>
-                  <td className="p-3 text-right font-mono text-yellow-300 text-base" colSpan={4}>
+                  <td
+                    className="p-3 text-right font-mono text-yellow-300 text-base"
+                    colSpan={4}
+                  >
                     {formatCOP(totalGeneralAproxDIAN)}
                   </td>
                 </tr>
@@ -753,7 +1043,8 @@ export default function RetencionFuente() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="bg-indigo-700 text-white p-4 font-bold text-sm flex justify-between items-center">
             <span className="flex items-center gap-2">
-              <FileText className="w-4 h-4" /> Movimientos Auxiliares y Clasificación por Persona
+              <FileText className="w-4 h-4" /> Movimientos Auxiliares y
+              Clasificación por Persona
             </span>
             <span className="bg-indigo-600 px-2.5 py-1 rounded-lg text-xs">
               {movimientosFiltrados.length} registros
@@ -769,19 +1060,31 @@ export default function RetencionFuente() {
                   <th className="p-3">Comprobante</th>
                   <th className="p-3">Tercero / NIT</th>
                   <th className="p-3">Tipo Persona</th>
-                  <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">Base Extraída / Nómina</th>
-                  <th className="p-3 text-right text-emerald-700">Retención (Crédito)</th>
-                  <th className="p-3 text-right text-rose-700">Devolución (Débito)</th>
+                  <th className="p-3 text-right text-indigo-700 bg-indigo-50/50">
+                    Base Extraída / Nómina
+                  </th>
+                  <th className="p-3 text-right text-emerald-700">
+                    Retención (Crédito)
+                  </th>
+                  <th className="p-3 text-right text-rose-700">
+                    Devolución (Débito)
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {movimientosFiltrados.map((m) => (
                   <tr key={m.id} className="hover:bg-slate-50 font-medium">
-                    <td className="p-3 font-bold text-slate-700">{m.cuentaCode}</td>
+                    <td className="p-3 font-bold text-slate-700">
+                      {m.cuentaCode}
+                    </td>
                     <td className="p-3 font-mono text-slate-500">{m.fecha}</td>
-                    <td className="p-3 font-bold text-indigo-600">{m.comprobante}</td>
+                    <td className="p-3 font-bold text-indigo-600">
+                      {m.comprobante}
+                    </td>
                     <td className="p-3">
-                      <p className="font-bold text-slate-800 truncate max-w-[200px]">{m.tercero}</p>
+                      <p className="font-bold text-slate-800 truncate max-w-[200px]">
+                        {m.tercero}
+                      </p>
                       <p className="text-[10px] text-slate-400">NIT: {m.nit}</p>
                     </td>
                     <td className="p-3">
