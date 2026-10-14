@@ -428,7 +428,7 @@ export default function RetencionFuente() {
         jurRet: 0,
       },
       RENDIMIENTOS: {
-        concepto: 'RENDIMIENTOS FINANCIEROS (236545)',
+        concepto: 'RENDIMIENTOS FINANCIEROS (236535 y 236545)',
         natBase: 0,
         natRet: 0,
         jurBase: 0,
@@ -455,7 +455,8 @@ export default function RetencionFuente() {
         key = 'ARR_INMUEBLES';
       } else if (cCode.startsWith('236540')) {
         key = 'COMPRAS';
-      } else if (cCode.startsWith('236545')) {
+      } else if (cCode.startsWith('236535') || cCode.startsWith('236545')) {
+        // INCLUSIÓN: Agrupación de cuentas 236535 y 236545 en RENDIMIENTOS FINANCIEROS
         key = 'RENDIMIENTOS';
       }
 
